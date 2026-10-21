@@ -1,0 +1,13 @@
+# local only
+CLAUDE.md
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# downloaded models (see docs/SETUP.md for the URL)
+models/
