@@ -56,6 +56,12 @@ Four things must work before sepiad: the camera, the NPU driver, OpenVINO seeing
    sudo modprobe v4l2loopback
    ```
 5. **Voice focus (optional).** `sudo dnf install easyeffects`, then enable its noise-reduction plugin.
+6. **Power counters (benchmarking only).** The RAPL energy counters are root-only, because fine-grained energy readings can leak information about other running code (CVE-2020-8694). Open them before benchmarking; a reboot restores the restriction:
+
+   ```bash
+   sudo chmod o+r /sys/class/powercap/intel-rapl:0/energy_uj /sys/class/powercap/intel-rapl:0:0/energy_uj \
+                  /sys/class/powercap/intel-rapl:0:1/energy_uj /sys/class/powercap/intel-rapl:1/energy_uj
+   ```
 
 ## Sources
 

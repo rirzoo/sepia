@@ -4,7 +4,7 @@ How sepiad and sepiactl work, and the decisions behind the design.
 
 ## How sepiad works
 
-sepiad runs a one-time setup, then a loop that runs on every frame. Inference runs on the device chosen by `--infer`; blur and blend run on the CPU or the iGPU, chosen by `--post`. Which device is the default is decided by measurement ([BENCHMARK.md](BENCHMARK.md)): the CPU is too slow for the model at 30 fps, and the NPU and iGPU are close on speed, so power decides between them.
+sepiad runs a one-time setup, then a loop that runs on every frame. Inference runs on the device chosen by `--infer`; blur and blend run on the CPU or the iGPU, chosen by `--post`. Inference runs on the NPU by default ([Inference on the NPU](#inference-on-the-npu)). Where blur and blend run is still to be measured.
 
 ```
 capture (MJPG) → preprocess → infer [NPU | GPU | CPU] → mask post-process → effects [CPU | iGPU] → virtual camera
@@ -60,7 +60,7 @@ import openvino as ov
 import pyvirtualcam
 
 CAM = "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:5:1.0-video-index0"  # RGB camera; by-id points at the IR one
-DEVICE = "NPU"  # set from benchmark results: NPU, GPU or CPU
+DEVICE = "NPU"  # chosen by the model-only power benchmark (docs/BENCHMARK.md); GPU and CPU also work
 
 core = ov.Core()
 core.set_property({"CACHE_DIR": os.path.expanduser("~/.cache/sepia")})
@@ -89,6 +89,10 @@ with pyvirtualcam.Camera(1280, 720, 30, device="/dev/video10", fmt=pyvirtualcam.
 ```
 
 ## Design decisions
+
+### Inference on the NPU
+
+Decided Oct 22, 2026, from the model-only power benchmark ([BENCHMARK.md](BENCHMARK.md#model-only-power-oct-22-2026)). At 30 inferences per second the NPU adds 1.95 W of package power and the iGPU 5.64 W, so the NPU costs about a third as much. It is slightly slower per frame (8.7 vs 7.2 ms), but both are well inside the 33 ms budget. The CPU is ruled out because it manages only 13.8 inferences per second. With inference on the NPU, the iGPU stays free for blur and blend. `--infer GPU` and `--infer CPU` stay available for benchmarking and as fallbacks on machines without a working NPU. Revisit this if the full pipeline benchmark disagrees.
 
 ### On-demand camera (after v1)
 

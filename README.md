@@ -13,7 +13,7 @@ Oct 21, 2026 · @Romir Zadoo
 
 ## Status
 
-Setup is complete and checked end to end on this laptop: real 720p frames → model on the NPU → the "Sepia Cam" virtual camera → read back by another process. Next: write the blur-only sepiad with `--bench`. See [ROADMAP.md](docs/ROADMAP.md#next-steps).
+Setup is complete and checked end to end on this laptop: real 720p frames → model on the NPU → the "Sepia Cam" virtual camera → read back by another process. A model-only power benchmark put inference on the NPU, which uses about a third of the iGPU's power. Next: write the blur-only sepiad with `--bench`. See [ROADMAP.md](docs/ROADMAP.md#next-steps).
 
 ## Docs
 

@@ -8,7 +8,7 @@ Linux has no system-wide camera effects, and the effects that do exist cost CPU 
 
 - **Effects are per-app and uneven.** Google Meet in Chrome has its own blur and background replacement; WhatsApp Web has none; no browser app offers automatic framing or face lighting. Each app that does offer effects runs its own model on the CPU or GPU.
 - **Nothing on Linux does what Windows Studio Effects does**: one camera, effects applied once, available to every app. Even on Windows, Microsoft now requires a Copilot+ PC with an NPU over 40 TOPS for the full set ([Microsoft](https://support.microsoft.com/en-us/windows/ai/ai-features/windows-studio-effects)).
-- **The hardware for cheap inference sits unused.** The Core Ultra 5 125H has an NPU (NPU 3720, about 11 TOPS) that works on Linux through Intel's driver and OpenVINO, but no desktop app uses it for the camera. Whether it actually saves power for this workload is unknown: that is a question this project answers, not an assumption it starts from.
+- **The hardware for cheap inference sits unused.** The Core Ultra 5 125H has an NPU (NPU 3720, about 11 TOPS) that works on Linux through Intel's driver and OpenVINO, but no desktop app uses it for the camera. For inference alone it does: on this laptop the NPU uses about a third of the iGPU's power ([BENCHMARK.md](BENCHMARK.md#model-only-power-oct-22-2026)). Whether the whole pipeline saves power is what the project measures next.
 
 ## Goal
 
@@ -32,7 +32,7 @@ A background daemon, sepiad, reads the real webcam and runs a segmentation model
 
 | Option | Uses NPU | Effort | Notes |
 | --- | --- | --- | --- |
-| sepiad + sepiactl (chosen) | If it measures best | Medium | Light, always-on, fully customisable |
+| sepiad + sepiactl (chosen) | Yes, for inference (measured) | Medium | Light, always-on, fully customisable |
 | Meet's built-in blur | No | None | Meet only; **the power baseline to beat** |
 | [OBS + Intel OpenVINO plugins](https://github.com/intel/openvino-plugins-for-obs-studio) | Yes | Low | Includes Smart Framing; OBS must stay open |
 | [fuel](https://github.com/tdv/fuel) | Yes, with a device edit | Medium | OpenVINO background removal, targets the iGPU |
