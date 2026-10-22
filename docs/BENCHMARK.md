@@ -33,7 +33,11 @@ The NPU-utilisation counter also proves the NPU is doing the inference when it i
 
 ## Method
 
-On battery, with screen brightness and Wi-Fi left as they are and no new work started during the run. Steady background apps can stay open. Run the matrix under `systemd-inhibit` (see `scripts/bench_matrix.py`): on Oct 22, 2026 the laptop suspended on its own during a run. Each configuration runs for 60 s, and idle phases alternate with the configurations; each configuration is compared with the mean of the idle phases on either side of it, so slow changes in background load cancel out. Each idle phase starts after a 15 s cooldown, because power stays high for several seconds after a load ends. The spread of the idle phases is the noise floor, and smaller differences don't count. The whole sequence runs 3 times, and results are reported as mean ± standard deviation. Raw numbers and the method are published with the README.
+On battery, or plugged in with the CPU on the battery profile (below). Screen brightness and Wi-Fi stay as they are, and no new work starts during the run. Steady background apps can stay open. Run the matrix under `systemd-inhibit` (see `scripts/bench_matrix.py`): on Oct 22, 2026 the laptop suspended on its own during a run. Each configuration runs for 60 s, and idle phases alternate with the configurations; each configuration is compared with the mean of the idle phases on either side of it, so slow changes in background load cancel out. Each idle phase starts after a 15 s cooldown, because power stays high for several seconds after a load ends. The spread of the idle phases is the noise floor, and smaller differences don't count. The whole sequence runs 3 times, and results are reported as mean ± standard deviation. Raw numbers and the method are published with the README.
+
+**Plugged in.** On battery, Fedora's tuned switches to the `balanced-battery` profile. Its only CPU setting is the energy-performance preference, `balance_power`, which keeps clocks low. Setting that profile by hand while plugged in ([SETUP.md](SETUP.md), step 7) gives the same CPU behaviour, so runs don't drain the battery and can go overnight. On Oct 22, 2026 a plugged-in run agreed with the battery runs within their spread ([Mask from the previous frame](#mask-from-the-previous-frame-plugged-in-oct-22-2026)). Every bench.csv row records the preference in its `epp` column, and `bench_matrix.py` warns when it isn't `balance_power`. Below 20% battery GNOME switches to power saver (`epp` is `power`), which is slower still, so those runs don't count. Plugged in, `psys` includes the charger; compare package power only.
+
+**Latency only.** Comparisons of latency and fps skip the idle phases: `sepiad --bench 60` 3 times per variant, alternating, about 3 minutes per variant.
 
 ## Results
 
@@ -135,3 +139,34 @@ By default OpenCV splits each call across all 18 CPU threads. With one thread it
 Async inference cut the time spent waiting for the NPU from about 14 ms to under 1 ms, and with default threads it raised the frame rate from 29.3 to 29.8 fps. With one thread the synchronous loop already reaches 29.7 fps. There, async cost 0.39 W more and added 15.8 ms of mean latency, about the one frame it holds back by design.
 
 **Decision:** sepiad calls `cv2.setNumThreads(1)` and keeps the synchronous loop. On battery the latency is still over budget: 72.0 ms mean and 114.1 ms at the 95th percentile, against 66 ms. The comparison of blur on the CPU and on the iGPU was made with default threads; with one thread the CPU side costs less, and the iGPU side hasn't been measured that way yet.
+
+### Mask from the previous frame, plugged in (Oct 22, 2026)
+
+Plugged in, with the CPU on the `balanced-battery` profile (`epp` is `balance_power` in every row). Real camera, nothing reading Sepia Cam, OpenVINO 2025.1, `intel-npu-driver` 1.16.0, `--infer NPU --post cpu`. The old loop is commit ab5ee2a, where each frame waits for its own mask. The new loop is the commit that adds this entry: the NPU segments a frame while the CPU blends it with the previous frame's mask and sends it.
+
+**Power A/B:** `bench_matrix.py` with both loops, 3 runs from 21:36 to 21:53 IST. Idle package power was 1.93 to 2.12 W, except the first idle phase (3.17 W), which overlapped the harness starting up and raises the old loop's baseline in run 1. Mean ± standard deviation, power added over idle:
+
+| Loop | Package | CPU cores | fps | Latency mean / p95 | sepiad CPU | Decode | Blur and blend | Waiting for the NPU | Waiting for the camera |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| old (ab5ee2a) | +4.74 ± 0.16 W | +2.51 W | 29.8 | 66.7 / 86.2 ms | 52% | 6.0 ms | 8.8 ms | 14.1 ms | 2.9 ms |
+| new | +5.12 ± 0.23 W | +2.78 W | 29.7 | 51.1 / 60.9 ms | 54% | 7.8 ms | 7.6 ms | 0.6 ms | 16.2 ms |
+
+The new loop cuts mean latency by 15.6 ms and the 95th percentile by 25.3 ms. Each frame now takes about 17.5 ms of processing, so sepiad waits about 16 ms for the next one and frames no longer queue. The other 33 ms or so pass before sepiad can read the frame: the driver timestamps the start of the frame, and the camera takes about a frame period to send it. The camera offers 720p MJPG only at 30 fps, so sepiad can't shorten that part. Decode slowed from 6.0 to 7.8 ms, probably because the CPU drops its clock during the longer wait.
+
+The new loop costs 0.38 W more over idle. Without run 1, whose first idle phase read high, the gap is 0.22 W. Both are close to the spread of the runs. The async trial earlier the same day cost 0.39 W for a similar overlap, so the cost looks real but small.
+
+**Check of the plugged-in method:** the old loop is the same code as "sync, 1 thread" in [Async inference and OpenCV threads](#async-inference-and-opencv-threads-oct-22-2026), which ran on battery. Package power agreed within the spread (+4.74 ± 0.16 W plugged in, +5.00 ± 0.27 W on battery), as did fps (29.8 and 29.7) and the NPU wait (14.1 ms in both). Plugged in, latency read lower (66.7 / 86.2 against 72.0 / 114.1 ms), decode was about 1 ms faster, and idle was about 0.4 W lower. Latency compared across the two methods can differ by a few ms; comparisons within one session are unaffected.
+
+**Latency-only runs:** same conditions, 21:54 to 22:03 IST, `sepiad --bench 60` 3 times per variant, alternating, no idle phases. Package power here is the raw reading, not power over idle.
+
+| Variant | fps | Latency mean / p95 | Package (raw) | Decode | Blur and blend |
+| --- | --- | --- | --- | --- | --- |
+| new loop | 29.8 | 50.7 / 56.5 ms | 7.33 W | 8.0 ms | 7.5 ms |
+| new loop, 2 camera buffers | 29.5 | 51.9 / 65.7 ms | 7.22 W | 8.7 ms | 7.2 ms |
+| new loop, `--post gpu` | 29.4 | 59.4 / 136.7 ms | 8.49 W | 11.6 ms | 5.8 ms |
+
+With frames no longer queueing, two camera buffers instead of OpenCV's default four change nothing; the higher p95 comes from one run with a stall (87.6 ms). On the iGPU, blur and blend take 1.7 ms less, but decode takes about 3.6 ms more, the tail is much longer, and the package draws 1.16 W more. With one OpenCV thread, the CPU path is ahead on every number here.
+
+**On power saver:** earlier that evening, at 20% battery, GNOME had switched to power saver (`epp` is `power`). In two 60 s runs each, the old loop fell to 21.5 fps with 215.8 ms mean and 235.1 ms p95 latency, while the new loop held 29.8 fps with 63.0 ms mean and 76.2 ms p95.
+
+**Decision:** sepiad blends each frame with the previous frame's mask. The camera keeps OpenCV's default buffers, and blur and blend stay on the CPU. Latency is 51.1 ms mean and 60.9 ms p95, of which about 33 ms is the camera's own frame time.

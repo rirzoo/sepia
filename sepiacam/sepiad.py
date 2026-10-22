@@ -3,7 +3,8 @@
 Run: sepiad [--infer NPU|GPU|CPU|none] [--post cpu|gpu] [--bench SECONDS]
 
 --bench runs for SECONDS after a short warm-up, prints the time per stage, fps, latency, CPU use and
-power, and appends one row to bench.csv in the current directory (docs/BENCHMARK.md). Power needs the
+power, and appends one row to bench.csv in the current directory (docs/BENCHMARK.md). The infer stage is
+only the wait for the previous frame's mask, since inference overlaps the rest of the loop. Power needs the
 RAPL counters opened first (docs/SETUP.md, step 6); without them the power columns stay empty.
 """
 import argparse
@@ -30,6 +31,7 @@ RAPL = Path("/sys/class/powercap")
 DOMAINS = {"pkg": "intel-rapl:0", "core": "intel-rapl:0:0", "gfx": "intel-rapl:0:1", "psys": "intel-rapl:1"}
 BAT = Path("/sys/class/power_supply/BAT1")
 NPU_BUSY = Path("/sys/class/accel/accel0/device/npu_busy_time_us")
+EPP = Path("/sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference")  # balance_power = battery profile
 WARMUP = 30  # frames left out of --bench: OpenCL kernel builds, first inferences, camera exposure settling
 STAGES = ["wait", "decode", "pre", "infer", "mask", "post", "send"]
 
@@ -90,6 +92,7 @@ def report(args, start, end, frames, times, latency):
         "infer": args.infer,
         "post": args.post,
         "battery": (BAT / "status").read_text().strip(),
+        "epp": EPP.read_text().strip(),
         "seconds": round(wall, 1),
         "fps": round(frames / wall, 1),
         "latency_ms": round(float(np.mean(latency)), 1),
@@ -111,7 +114,7 @@ def report(args, start, end, frames, times, latency):
 
 
 COLUMNS = ["time", "infer", "post", "battery", "seconds", "fps", "latency_ms", "latency_p95_ms", "cpu_pct",
-           "npu_busy_pct", *(f"{k}_w" for k in DOMAINS), *(f"{s}_ms" for s in STAGES)]
+           "npu_busy_pct", *(f"{k}_w" for k in DOMAINS), *(f"{s}_ms" for s in STAGES), "epp"]
 
 
 def append_row(row, path="bench.csv"):
@@ -143,7 +146,7 @@ def main():
 
     cam = open_camera()
     times, latency = {s: [] for s in STAGES}, []
-    frames, start, prev = 0, None, None
+    frames, start, prev, started = 0, None, None, False
     try:
         with pyvirtualcam.Camera(W, H, FPS, device=VCAM, fmt=pyvirtualcam.PixelFormat.BGR) as vcam:
             print(f"sepiad: {CAM} -> {vcam.device}, infer {args.infer}, post {args.post}", flush=True)
@@ -160,9 +163,17 @@ def main():
                 if req:
                     inp = cv2.resize(frame, (256, 256))
                     t.append(time.perf_counter())
-                    mask = req.infer([inp[None]])[0][0]
+                    # This frame is blended with the previous frame's mask, so no frame waits for the NPU: it
+                    # segments this frame while the CPU blends, sends and decodes the next. The mask trails by a frame.
+                    if started:
+                        req.wait()
+                    else:
+                        req.infer([inp[None]])  # first frame: wait for its own mask
+                    mask = req.get_output_tensor().data[0]
+                    prev = mask.copy() if prev is None else 0.6 * mask + 0.4 * prev  # temporal smoothing; tune vs edge lag
+                    req.start_async([inp[None]])
+                    started = True
                     t.append(time.perf_counter())
-                    prev = mask if prev is None else 0.6 * mask + 0.4 * prev  # temporal smoothing; tune vs edge lag
                     feathered = cv2.GaussianBlur(prev, (7, 7), 0)            # soft edges, cheap at 256x256
                     t.append(time.perf_counter())
                     out = blur_background(upload(frame), upload(feathered))

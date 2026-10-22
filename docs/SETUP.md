@@ -63,6 +63,12 @@ Four things must work before sepiad: the camera, the NPU driver, OpenVINO seeing
    sudo chmod o+r /sys/class/powercap/intel-rapl:0/energy_uj /sys/class/powercap/intel-rapl:0:0/energy_uj \
                   /sys/class/powercap/intel-rapl:0:1/energy_uj /sys/class/powercap/intel-rapl:1/energy_uj
    ```
+7. **Battery CPU profile while plugged in (benchmarking only).** On battery, tuned switches to `balanced-battery`, which sets the CPU's energy-performance preference to `balance_power`. To benchmark plugged in with the same CPU behaviour, switch to it by hand and back afterwards (checked Oct 22, 2026, tuned 2.28):
+
+   ```bash
+   sudo tuned-adm profile balanced-battery   # before the run
+   sudo tuned-adm profile balanced           # after
+   ```
 
 ## Sources
 

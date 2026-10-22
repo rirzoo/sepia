@@ -44,11 +44,13 @@ Version 1 builds three camera effects (blur, framing, portrait light) on one sha
 
 | Priority | Studio Effect | What it does | Linux implementation | Runs on | Difficulty |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Background blur (Standard / Portrait) | Blurs everything behind you; Portrait is a stronger blur | Segmentation mask + blend; larger kernel for Portrait; image in place of blur for replacement | Measured (mask), CPU or iGPU (blur) | Easy |
+| 1 | Background blur (Standard / Portrait) | Blurs everything behind you; Portrait is a lighter blur | Segmentation mask + blend; smaller kernel for Portrait; image in place of blur for replacement | Measured (mask), CPU or iGPU (blur) | Easy |
 | 2 | Automatic framing | Keeps you centred as you move | Person box from the mask → crop window that follows you with smoothing, then scale to 720p | Same mask, CPU (crop) | Medium |
 | 3 | Portrait light | Brightens your face in poor light | Measure brightness in the face-skin region of the mask; gamma or CLAHE there, blended into the rest | Same mask, CPU (correct) | Medium |
 | 4 | Voice focus | Removes background noise from the mic | EasyEffects with RNNoise or DeepFilterNet, outside sepiad | CPU (light) | Trivial |
 | Skip | Eye contact (Standard / Teleprompter) | Redraws eyes to look at the camera | Needs a gaze-redirection model; no good open one ready | – | Hard |
 | Skip | Creative filters | Stylised looks (illustrated, watercolour) | Style-transfer models; heavy | NPU | Hard |
+
+**Edge sharpness:** the blur's edge comes in three levels, low, medium and high. Sharper edges follow hair and shoulders more closely but cost more power, so users choose. Each level is measured, and all of them stay inside the latency budget ([ROADMAP.md](ROADMAP.md#level-1-personal-tool-plus-benchmark-focus)).
 
 **Not a Studio Effect:** whole-image exposure, white balance and contrast come from the camera. This laptop's USB camera handles them in firmware. If needed, sepiad adds a brightness-normalisation step before inference.
