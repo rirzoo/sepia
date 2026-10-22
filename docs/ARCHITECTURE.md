@@ -40,7 +40,8 @@ At 30 fps each frame has about 33 ms. The CPU-side steps (MJPEG decode, blur, bl
 - **Cheap blur:** blur a 320×180 copy, then upscale it. A small kernel on the small copy looks like a large kernel at full size.
 - **Blend without float copies:** `cv2.blendLinear` instead of NumPy arithmetic.
 - **iGPU post-processing:** run blur and blend on `cv2.UMat` (OpenCL) if the benchmark shows it saves CPU and power.
-- **Async inference, only if needed:** OpenVINO's `AsyncInferQueue` lets the device process frame N while the CPU blends frame N−1, but it adds one frame of latency. Use it only if the simple loop can't hold 30 fps.
+- **One OpenCV thread:** sepiad calls `cv2.setNumThreads(1)`. Splitting each 720p call across all 18 CPU threads cost more than it saved: on battery, one thread used 1.02 W less package power and 54% CPU instead of 129%, with blur and blend at 8.4 ms ([BENCHMARK.md](BENCHMARK.md#async-inference-and-opencv-threads-oct-22-2026)).
+- **Synchronous inference:** OpenVINO can run the device on frame N while the CPU blends frame N−1, at the cost of holding every frame back by one. A trial on Oct 22, 2026 removed the 14 ms wait for the NPU, but with one OpenCV thread it cost 0.39 W more and added 15.8 ms of latency, so the loop stays synchronous.
 
 ### Running in the background
 
@@ -67,7 +68,7 @@ Decided Oct 22, 2026, from the model-only power benchmark ([BENCHMARK.md](BENCHM
 
 ### Blur and blend on the CPU, provisionally
 
-The blur pipeline power matrix of Oct 22, 2026 came out close to a tie ([BENCHMARK.md](BENCHMARK.md#blur-pipeline-power-matrix-oct-22-2026)). With inference on the NPU, blur and blend on the iGPU cut sepiad's CPU use from 128% to 51%, and package power went from +6.19 to +6.55 W, a gap near the noise of the measurement. CPU time is a poor guide to cost here: the CPU cores drew about the same power either way. The runs had no app reading Sepia Cam, and a call changes the load on both the CPU (Chrome encodes video) and the iGPU (Chrome draws it). `--post cpu` is the default until the Meet measurement repeats both options with Meet reading Sepia Cam.
+The blur pipeline power matrix of Oct 22, 2026 came out close to a tie ([BENCHMARK.md](BENCHMARK.md#blur-pipeline-power-matrix-oct-22-2026)). With inference on the NPU, blur and blend on the iGPU cut sepiad's CPU use from 128% to 51%, and package power went from +6.19 to +6.55 W, a gap near the noise of the measurement. In that comparison the CPU cores drew about the same power either way. Both runs used OpenCV's default threads; with one thread, CPU blur costs 54% CPU and +5.00 W ([BENCHMARK.md](BENCHMARK.md#async-inference-and-opencv-threads-oct-22-2026)), and the iGPU side hasn't been measured with one thread yet. The runs had no app reading Sepia Cam, and a call changes the load on both the CPU (Chrome encodes video) and the iGPU (Chrome draws it). `--post cpu` is the default until the Meet measurement repeats both options with Meet reading Sepia Cam.
 
 ### On-demand camera (after v1)
 

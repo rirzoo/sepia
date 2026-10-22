@@ -130,6 +130,9 @@ def main():
     p.add_argument("--post", default="cpu", choices=["cpu", "gpu"], help="where blur and blend run; gpu uses OpenCL")
     p.add_argument("--bench", type=float, metavar="SECONDS", help="measure for SECONDS, append a row to bench.csv, exit")
     args = p.parse_args()
+    # OpenCV splits each call over every CPU thread; for 720p frames the threads mostly wait. One thread cut
+    # package power by 1 W and CPU use from 129% to 54% on battery, and blur and blend still fit (docs/BENCHMARK.md).
+    cv2.setNumThreads(1)
 
     req = None
     if args.infer != "none":

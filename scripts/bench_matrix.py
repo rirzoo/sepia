@@ -4,7 +4,8 @@ Each configuration is compared with the mean of the idle phases on either side o
 included (infer = idle), is appended to bench.csv in the repo root; the summary at the end is mean ± standard
 deviation over the runs. Camera on during the sepiad phases. Needs the RAPL counters open (docs/SETUP.md, step 6).
 
-Run: ~/.local/share/sepia/venv/bin/python scripts/bench_matrix.py [runs, default 3] [seconds per phase, default 60]
+Run it under systemd-inhibit, or the laptop may suspend during an idle phase on battery:
+  systemd-inhibit --what=sleep:idle ~/.local/share/sepia/venv/bin/python scripts/bench_matrix.py [runs, default 3] [seconds per phase, default 60]
 """
 import csv
 import statistics

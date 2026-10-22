@@ -42,7 +42,7 @@ Real-time eye-contact correction on an 11 TOPS NPU, model-based relighting, and 
 
 With the full blur pipeline on battery, NPU inference adds 6.19 W of package power against 10.12 W for the iGPU ([BENCHMARK.md](BENCHMARK.md#blur-pipeline-power-matrix-oct-22-2026)). The biggest open question now is whether that beats Meet's own blur.
 
-- **Slow on battery.** On battery, with the `balance_power` profile, the CPU stays at low clocks. Even with no effects the camera path falls to about 26 fps with 129 ms of latency, because MJPEG decode takes 24 to 31 ms. The NPU pipeline reaches 28.6 to 29.5 fps with about 100 ms of latency, against a 66 ms budget. Options: run inference asynchronously so the NPU works while the CPU decodes the next frame, keep fewer camera buffers so stale frames are dropped instead of queued, or decode on the iGPU.
+- **Slow on battery.** On battery, with the `balance_power` profile, the CPU stays at low clocks. Even with no effects the camera path falls to about 26 fps with 129 ms of latency, because MJPEG decode takes 24 to 31 ms. With one OpenCV thread the NPU pipeline reaches 29.7 fps, with 72.0 ms of latency on average and 114.1 ms at the 95th percentile, against a 66 ms budget. Async inference didn't help ([BENCHMARK.md](BENCHMARK.md#async-inference-and-opencv-threads-oct-22-2026)). Options left: keep fewer camera buffers so stale frames are dropped instead of queued, or decode on the iGPU.
 - **16 MB model, no CPU fallback.** The multiclass model is about 60× the size of the small selfie models and takes 52 ms on the CPU, so a laptop without a working NPU or iGPU can't run it at 30 fps. Mitigation: rewrite the small models' custom operation (see Open questions).
 - **Pinned old NPU driver.** Sepia needs `intel-npu-driver` 1.16.0 to match Fedora's OpenVINO 2025.1. Intel's published test coverage for Meteor Lake (about 83% of the extended suite) is for 1.38.0 ([notes](https://www.linuxcompatible.org/story/intel-npu-driver-1380-adds-ubuntu-2604-lts-support-and-major-kernel-70-upgrade/)). The current model runs on 1.16; later models may not. Removing the version lock before Fedora updates OpenVINO breaks the NPU again. Other users of Level 2 packages will hit the same mismatch.
 - **Darker image at a fixed 30 fps.** With dynamic frame rate off, exposure is capped at 33 ms, so the picture is darker in low light (mean brightness 82/255 in an evening room). Portrait light and the brightness-normalisation step compensate. The mask also holds up much better in a dark room with −1 to 1 input scaling than with 0 to 1.
@@ -53,7 +53,6 @@ With the full blur pipeline on battery, NPU inference adds 6.19 W of package pow
 ## Open questions
 
 - Is the multiclass model fast and cheap enough end to end, or is it worth rewriting the small models' `Convolution2DTransposeBias` as a standard transposed convolution plus bias, to get the 250 KB model back (and a viable CPU path)?
-- How much of the 128% CPU use with blur on the CPU is OpenCV's worker threads? `cv2.setNumThreads(1)` runs each OpenCV call on one thread; if blur and blend still fit in the frame time that way, CPU blur would cost about as little CPU time as the iGPU path.
 - Which on-demand detection works with Chrome: the v4l2loopback event or `/proc` polling?
 
 ## Next steps
@@ -66,7 +65,8 @@ With the full blur pipeline on battery, NPU inference adds 6.19 W of package pow
 - [x] Model-only power benchmark, 3 runs: inference runs on the NPU ([ARCHITECTURE.md](ARCHITECTURE.md#inference-on-the-npu))
 - [x] Write the blur-only sepiad with `--infer`, `--post` and `--bench`: 29.8 fps with inference on the NPU, about 22 ms of added latency
 - [x] Run the camera-only baseline and the 6-configuration matrix on battery; inference stays on the NPU; blur and blend run on the CPU for now, a near tie with the iGPU ([ARCHITECTURE.md](ARCHITECTURE.md#blur-and-blend-on-the-cpu-provisionally))
-- [ ] Hold 30 fps and the 66 ms latency budget on battery (see Risks)
+- [x] Try async inference and one OpenCV thread on battery: one thread saves 1.02 W and keeps 29.7 fps; async is dropped
+- [ ] Bring latency on battery under the 66 ms budget, now 72.0 ms mean (see Risks)
 - [ ] Measure Meet's own blur against Meet using Sepia Cam, running Sepia Cam with both `--post cpu` and `--post gpu`, and settle where blur and blend run
 - [ ] Add sepiactl and the systemd user service
 - [ ] Add automatic framing, then portrait light

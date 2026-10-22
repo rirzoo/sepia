@@ -33,7 +33,7 @@ The NPU-utilisation counter also proves the NPU is doing the inference when it i
 
 ## Method
 
-On battery, with screen brightness and Wi-Fi left as they are and no new work started during the run. Steady background apps can stay open. Each configuration runs for 60 s, and idle phases alternate with the configurations; each configuration is compared with the mean of the idle phases on either side of it, so slow changes in background load cancel out. Each idle phase starts after a 15 s cooldown, because power stays high for several seconds after a load ends. The spread of the idle phases is the noise floor, and smaller differences don't count. The whole sequence runs 3 times, and results are reported as mean ± standard deviation. Raw numbers and the method are published with the README.
+On battery, with screen brightness and Wi-Fi left as they are and no new work started during the run. Steady background apps can stay open. Run the matrix under `systemd-inhibit` (see `scripts/bench_matrix.py`): on Oct 22, 2026 the laptop suspended on its own during a run. Each configuration runs for 60 s, and idle phases alternate with the configurations; each configuration is compared with the mean of the idle phases on either side of it, so slow changes in background load cancel out. Each idle phase starts after a 15 s cooldown, because power stays high for several seconds after a load ends. The spread of the idle phases is the noise floor, and smaller differences don't count. The whole sequence runs 3 times, and results are reported as mean ± standard deviation. Raw numbers and the method are published with the README.
 
 ## Results
 
@@ -116,3 +116,22 @@ The camera alone can't hold 30 fps on battery either. With no effects, decode to
 **Decision:** inference stays on the NPU. NPU inference adds 6.19 W against 10.12 W for the iGPU, about 40% less, at almost the same frame rate. CPU inference is ruled out again: under 12 fps at the highest power of all.
 
 Where blur and blend run is a near tie, and the choice is provisional. On the iGPU they cut sepiad's CPU use from 128% to 51% and added 0.36 W of package power. That gap is close to the noise: the two configurations' standard deviations were 0.14 and 0.25 W over 3 runs, and the idle phases of the pass spanned 0.76 W. The first pass pointed the same way, at +0.61 W. The extra CPU time cost little energy, since the CPU cores drew about the same either way (+4.01 and +4.14 W); the difference was in the iGPU and the rest of the chip. Nothing was reading Sepia Cam in these runs. In a call, Chrome encodes video on the CPU and keeps the iGPU awake to draw it, which could change the balance either way. `--post` stays `cpu` by default until both options are measured again with Meet reading Sepia Cam. Two problems remain on battery: the NPU path runs just under 30 fps, and latency from capture to send is about 100 ms against a 66 ms budget. Meet's own blur, the last baseline, hasn't been measured yet.
+
+### Async inference and OpenCV threads (Oct 22, 2026)
+
+`sepiad --bench 60 --infer NPU --post cpu` in 4 variants, with idle phases between them as in the matrix, 3 runs from 20:04 to 20:43 IST. On battery (39% at the start, 31% at the end), power profile `balance_power`, real camera, nothing reading Sepia Cam, OpenVINO 2025.1, `intel-npu-driver` 1.16.0. The synchronous variants are commit 2180c08. "1 thread" means `cv2.setNumThreads(1)` was called before sepiad started. The async variant was a trial, not committed: the NPU segmented frame N while the CPU blended and sent frame N−1. Idle package power was between 2.37 and 2.85 W. In run 2 the laptop suspended for about 10 minutes during the cooldown before an idle phase, and that phase read 2.85 W against about 2.45 W for the others. Leaving it out moves no result by more than 0.1 W; the table includes it.
+
+Mean ± standard deviation of the 3 runs, power added over idle:
+
+| Variant | Package | CPU cores | fps | Latency mean / p95 | sepiad CPU | Blur and blend | Waiting for the NPU |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| sync, default threads (2180c08) | +6.02 ± 0.09 W | +3.77 W | 29.3 | 96.8 / 165.8 ms | 129% | 4.6 ms | 14.7 ms |
+| sync, 1 thread | +5.00 ± 0.27 W | +2.88 W | 29.7 | 72.0 / 114.1 ms | 54% | 8.4 ms | 14.1 ms |
+| async, default threads | +5.73 ± 0.12 W | +3.56 W | 29.8 | 88.8 / 117.9 ms | 135% | 4.7 ms | 0.8 ms |
+| async, 1 thread | +5.39 ± 0.13 W | +3.14 W | 29.6 | 87.8 / 110.6 ms | 58% | 7.2 ms | 0.6 ms |
+
+By default OpenCV splits each call across all 18 CPU threads. With one thread it runs each call on the calling thread, and blur and blend take 8.4 ms instead of 4.6 ms, which still fits in the frame. CPU use falls from 129% to 54% and package power by 1.02 W, nearly all of it in the CPU cores (+3.77 to +2.88 W). Mean latency falls from 96.8 to 72.0 ms.
+
+Async inference cut the time spent waiting for the NPU from about 14 ms to under 1 ms, and with default threads it raised the frame rate from 29.3 to 29.8 fps. With one thread the synchronous loop already reaches 29.7 fps. There, async cost 0.39 W more and added 15.8 ms of mean latency, about the one frame it holds back by design.
+
+**Decision:** sepiad calls `cv2.setNumThreads(1)` and keeps the synchronous loop. On battery the latency is still over budget: 72.0 ms mean and 114.1 ms at the 95th percentile, against 66 ms. The comparison of blur on the CPU and on the iGPU was made with default threads; with one thread the CPU side costs less, and the iGPU side hasn't been measured that way yet.
