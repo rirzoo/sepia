@@ -13,14 +13,14 @@ Oct 21, 2026 · @Romir Zadoo
 
 ## Status
 
-Setup is complete and checked end to end on this laptop: real 720p frames → model on the NPU → the "Sepia Cam" virtual camera → read back by another process. A model-only power benchmark put inference on the NPU, which uses about a third of the iGPU's power. Next: write the blur-only sepiad with `--bench`. See [ROADMAP.md](docs/ROADMAP.md#next-steps).
+Setup is complete and checked end to end on this laptop: real 720p frames → model on the NPU → the "Sepia Cam" virtual camera → read back by another process. A model-only power benchmark put inference on the NPU, which uses about a third of the iGPU's power. The blur-only sepiad works. On battery, with the full pipeline, NPU inference adds 6.19 W of package power against 10.12 W for the iGPU, so the NPU stays the default. Blur runs on the CPU for now; against the iGPU it is a near tie, to be settled with Meet running. Next: hold 30 fps and the latency budget on battery, then compare with Meet's own blur. See [ROADMAP.md](docs/ROADMAP.md#next-steps).
 
 ## Docs
 
 | Doc | What it covers |
 | --- | --- |
 | [OVERVIEW.md](docs/OVERVIEW.md) | The problem, goal, constraints, alternatives considered, and the feature set |
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How sepiad works: the pipeline, the core loop sketch, sepiactl, and design decisions |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How sepiad works: the pipeline, the code map, sepiactl, and design decisions |
 | [SETUP.md](docs/SETUP.md) | This laptop's hardware and the Fedora setup steps, including the known workarounds |
 | [BENCHMARK.md](docs/BENCHMARK.md) | How devices are compared (baselines, matrix, metrics, method) and the results so far |
 | [ROADMAP.md](docs/ROADMAP.md) | Levels 1–4, risks, open questions and next steps |

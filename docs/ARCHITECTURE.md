@@ -4,7 +4,7 @@ How sepiad and sepiactl work, and the decisions behind the design.
 
 ## How sepiad works
 
-sepiad runs a one-time setup, then a loop that runs on every frame. Inference runs on the device chosen by `--infer`; blur and blend run on the CPU or the iGPU, chosen by `--post`. Inference runs on the NPU by default ([Inference on the NPU](#inference-on-the-npu)). Where blur and blend run is still to be measured.
+sepiad runs a one-time setup, then a loop that runs on every frame. Inference runs on the device chosen by `--infer`; blur and blend run on the CPU or the iGPU, chosen by `--post`. By default inference runs on the NPU, chosen by measurement ([Inference on the NPU](#inference-on-the-npu)), and blur and blend run on the CPU for now ([Blur and blend on the CPU, provisionally](#blur-and-blend-on-the-cpu-provisionally)).
 
 ```
 capture (MJPG) → preprocess → infer [NPU | GPU | CPU] → mask post-process → effects [CPU | iGPU] → virtual camera
@@ -18,10 +18,10 @@ capture (MJPG) → preprocess → infer [NPU | GPU | CPU] → mask post-process 
 
 ### Per-frame loop (30 times a second)
 
-1. **Capture** a 1280×720 MJPG frame with OpenCV (decoded to BGR on the CPU).
-2. **Preprocess:** resize to 256×256, convert BGR to RGB, and scale pixels from 0–255 to the range −1 to 1. In a side-by-side preview on Oct 21, 2026 (`scripts/preview_scaling.py`), both scalings outlined the person equally well in good light, while in a dark room −1 to 1 did much better than 0 to 1. The TFLite model is already NHWC, so no layout reorder.
-3. **Infer** on the chosen device: 256×256×6 class scores; a softmax turns them into the person mask.
-4. **Post-process the mask:** average with the previous mask to stop flicker, upscale to 720p, feather the edges.
+1. **Capture** a 1280×720 MJPG frame with OpenCV. sepiad asks for the raw JPEG and decodes it to BGR itself with `cv2.imdecode`, so decode time shows up separately from the wait for the next frame.
+2. **Preprocess:** resize to 256×256 on the CPU. Converting BGR to RGB and scaling pixels from 0–255 to the range −1 to 1 are built into the model with OpenVINO's `PrePostProcessor`, so they run on the inference device. In a side-by-side preview on Oct 21, 2026 (`scripts/preview_scaling.py`), both scalings outlined the person equally well in good light, while in a dark room −1 to 1 did much better than 0 to 1. The TFLite model is already NHWC, so no layout reorder.
+3. **Infer** on the chosen device. The model gives 256×256×6 class scores, and a softmax built into the model turns them into the 256×256 person mask, so the device sends back one channel instead of six. On battery, the preprocessing and the softmax on the CPU took about 10 ms per frame and pushed the NPU pipeline down to 22 fps ([BENCHMARK.md](BENCHMARK.md#blur-pipeline-power-matrix-oct-22-2026)).
+4. **Post-process the mask:** average with the previous mask to stop flicker and feather the edges, both at 256×256 where they are cheap. The blend step then scales the mask up to 720p.
 5. **Apply effects:** blur, framing crop, face lighting ([OVERVIEW.md](OVERVIEW.md#feature-set)).
 6. **Output:** send BGR straight to the virtual camera with `pyvirtualcam` (`fmt=PixelFormat.BGR`, no extra conversion).
 
@@ -48,51 +48,26 @@ At 30 fps each frame has about 33 ms. The CPU-side steps (MJPEG decode, blur, bl
 - **Control without restarting:** `sepiactl` sends commands to the running daemon over a Unix socket (D-Bus can come later).
 - **Camera on only during calls (v1):** run sepiad only when needed (`systemctl --user start sepiad`, or `sepiactl on/off`). Opening the camera automatically when an app reads is a later step; see [On-demand camera](#on-demand-camera-after-v1).
 
-**Controls:** `sepiactl on|off`, `sepiactl blur on|off`, `sepiactl blur-strength N`, `sepiactl background IMAGE`, `sepiactl frame on|off`, `sepiactl light on|off`, `sepiactl status`.
+**Controls:** `sepiactl on|off`, `sepiactl blur on|off`, `sepiactl blur-strength N`, `sepiactl background IMAGE`, `sepiactl frame on|off`, `sepiactl light on|off`, `sepiactl status`. sepiactl doesn't exist yet. For now sepiad has three flags: `--infer NPU|GPU|CPU|none` (default `NPU`; `none` passes frames through unchanged, as the no-effects baseline), `--post cpu|gpu` (default `cpu`) and `--bench SECONDS` ([BENCHMARK.md](BENCHMARK.md#harness)).
 
-### Core loop (sketch)
+### Code
 
-```python
-import os
-import cv2
-import numpy as np
-import openvino as ov
-import pyvirtualcam
-
-CAM = "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:5:1.0-video-index0"  # RGB camera; by-id points at the IR one
-DEVICE = "NPU"  # chosen by the model-only power benchmark (docs/BENCHMARK.md); GPU and CPU also work
-
-core = ov.Core()
-core.set_property({"CACHE_DIR": os.path.expanduser("~/.cache/sepia")})
-model = core.compile_model("selfie_multiclass_256x256.tflite", DEVICE)
-
-cam = cv2.VideoCapture(CAM, cv2.CAP_V4L2)
-cam.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))  # YUYV gives only 10 fps at 720p
-cam.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-cam.set(cv2.CAP_PROP_FPS, 30)
-
-prev = None
-with pyvirtualcam.Camera(1280, 720, 30, device="/dev/video10", fmt=pyvirtualcam.PixelFormat.BGR) as vcam:
-    while True:
-        ok, frame = cam.read()
-        if not ok:
-            continue
-        inp = cv2.cvtColor(cv2.resize(frame, (256, 256)), cv2.COLOR_BGR2RGB).astype(np.float32) / 127.5 - 1  # -1..1: much better than 0..1 in low light
-        logits = model(inp[None])[0][0]                            # (256, 256, 6); runs on DEVICE
-        e = np.exp(logits - logits.max(-1, keepdims=True))
-        mask = 1 - e[..., 0] / e.sum(-1)                           # person = not background
-        prev = mask if prev is None else 0.6 * mask + 0.4 * prev   # temporal smoothing; tune vs edge lag
-        m = cv2.GaussianBlur(cv2.resize(prev, (1280, 720)), (15, 15), 0)
-        blurred = cv2.resize(cv2.GaussianBlur(cv2.resize(frame, (320, 180)), (15, 15), 0), (1280, 720))
-        vcam.send(cv2.blendLinear(frame, blurred, m, 1 - m))
-```
+| File | What it holds |
+| --- | --- |
+| `sepiacam/sepiad.py` | The daemon: camera setup, the per-frame loop, `--bench` timing and power, and the bench.csv row. `build_model` adds the preprocessing and the softmax to the model; `blur_background` does the blend and takes NumPy arrays or `cv2.UMat` for the iGPU |
+| `tests/test_sepiad.py` | Checks that the built-in preprocessing and softmax match doing them by hand, the blend maths, and that the CPU and iGPU paths give the same image. Run it with the venv's Python |
+| `pyproject.toml` | The `sepiacam` package and the `sepiad` command; only pyvirtualcam comes from pip |
+| `scripts/` | The input-scaling preview, the model-only power benchmark, and `bench_matrix.py`, which runs `sepiad --bench` over every configuration with idle phases in between |
 
 ## Design decisions
 
 ### Inference on the NPU
 
-Decided Oct 22, 2026, from the model-only power benchmark ([BENCHMARK.md](BENCHMARK.md#model-only-power-oct-22-2026)). At 30 inferences per second the NPU adds 1.95 W of package power and the iGPU 5.64 W, so the NPU costs about a third as much. It is slightly slower per frame (8.7 vs 7.2 ms), but both are well inside the 33 ms budget. The CPU is ruled out because it manages only 13.8 inferences per second. With inference on the NPU, the iGPU stays free for blur and blend. `--infer GPU` and `--infer CPU` stay available for benchmarking and as fallbacks on machines without a working NPU. Revisit this if the full pipeline benchmark disagrees.
+Decided Oct 22, 2026, from the model-only power benchmark ([BENCHMARK.md](BENCHMARK.md#model-only-power-oct-22-2026)). At 30 inferences per second the NPU adds 1.95 W of package power and the iGPU 5.64 W, so the NPU costs about a third as much. It is slightly slower per frame (8.7 vs 7.2 ms), but both are well inside the 33 ms budget. The CPU is ruled out because it manages only 13.8 inferences per second. With inference on the NPU, the iGPU stays free for blur and blend. `--infer GPU` and `--infer CPU` stay available for benchmarking and as fallbacks on machines without a working NPU. The full blur pipeline on battery confirmed the choice: NPU inference adds 6.19 W of package power and GPU inference 10.12 W ([BENCHMARK.md](BENCHMARK.md#blur-pipeline-power-matrix-oct-22-2026)).
+
+### Blur and blend on the CPU, provisionally
+
+The blur pipeline power matrix of Oct 22, 2026 came out close to a tie ([BENCHMARK.md](BENCHMARK.md#blur-pipeline-power-matrix-oct-22-2026)). With inference on the NPU, blur and blend on the iGPU cut sepiad's CPU use from 128% to 51%, and package power went from +6.19 to +6.55 W, a gap near the noise of the measurement. CPU time is a poor guide to cost here: the CPU cores drew about the same power either way. The runs had no app reading Sepia Cam, and a call changes the load on both the CPU (Chrome encodes video) and the iGPU (Chrome draws it). `--post cpu` is the default until the Meet measurement repeats both options with Meet reading Sepia Cam.
 
 ### On-demand camera (after v1)
 
@@ -110,7 +85,7 @@ Framing needs only a person box, which comes from the mask: threshold it and tak
 
 ### Latency and lip sync
 
-sepiad stamps each frame when captured and when sent; `--bench` reports the average and 95th percentile. Budget: 66 ms (2 frames). For true camera-to-screen latency, film a running stopwatch through Meet's self-view once.
+sepiad measures each frame from the camera driver's buffer timestamp (CLOCK_MONOTONIC) to the moment it is sent; `--bench` reports the average and 95th percentile. The driver timestamp makes the number include time the frame spent queued before sepiad read it. Budget: 66 ms (2 frames) on top of the camera's own delay, which the `--infer none` baseline measures. For true camera-to-screen latency, film a running stopwatch through Meet's self-view once.
 
 ### Camera node selection (Level 2)
 

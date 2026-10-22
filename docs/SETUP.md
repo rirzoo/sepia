@@ -41,10 +41,11 @@ Four things must work before sepiad: the camera, the NPU driver, OpenVINO seeing
    ~/.local/share/sepia/venv/bin/pip install pyvirtualcam
    ```
 
-   Download the model into `models/`:
+   Download the model into `models/`, then install Sepia itself into the venv from the repo root. `--no-build-isolation` builds it with Fedora's setuptools, so pip downloads nothing:
 
    ```bash
    curl -LO https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite
+   ~/.local/share/sepia/venv/bin/pip install --no-build-isolation -e .   # adds ~/.local/share/sepia/venv/bin/sepiad
    ```
 4. **Virtual camera.** v4l2loopback comes from RPM Fusion free. Install the release package from `download1.rpmfusion.org`: the `mirrors.rpmfusion.org` redirector sent this laptop to a mirror that timed out. The akmod builds the kernel module on install and rebuilds it at boot after kernel updates. `exclusive_caps=1` is required, or Chrome and Firefox won't list the device. Make it load at every boot:
 

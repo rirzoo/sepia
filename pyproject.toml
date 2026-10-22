@@ -1,0 +1,17 @@
+[project]
+name = "sepiacam"
+version = "0.1.0"
+description = "Camera effects for Linux: background blur on the NPU, written to a virtual camera"
+requires-python = ">=3.12"
+# OpenVINO, OpenCV and NumPy come from the distribution's packages (docs/SETUP.md), not pip
+dependencies = ["pyvirtualcam"]
+
+[project.scripts]
+sepiad = "sepiacam.sepiad:main"
+
+[tool.setuptools]
+packages = ["sepiacam"]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
