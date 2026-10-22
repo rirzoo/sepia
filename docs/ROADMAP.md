@@ -70,7 +70,7 @@ With the full blur pipeline on battery, NPU inference adds 6.19 W of package pow
 - [x] Measure plugged in with the CPU on the battery profile; it matches battery runs within their spread ([BENCHMARK.md](BENCHMARK.md#method))
 - [x] Blend each frame with the previous frame's mask: 51.1 ms mean and 60.9 ms p95 latency, from 66.7 and 86.2 ms; fewer camera buffers and iGPU blur didn't help
 - [ ] Decide whether a 60.9 ms p95 is far enough inside 66 ms, or cut blend time further (see Risks)
-- [ ] Add the blur modes and edge levels (Level 1, item 4), on their own branch
+- [ ] Add the blur modes and edge levels (Level 1, item 4)
 - [ ] Measure Meet's own blur against Meet using Sepia Cam, running Sepia Cam with both `--post cpu` and `--post gpu`, and settle where blur and blend run
 - [ ] Add sepiactl and the systemd user service
 - [ ] Add automatic framing, then portrait light

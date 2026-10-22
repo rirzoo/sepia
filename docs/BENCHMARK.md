@@ -142,7 +142,7 @@ Async inference cut the time spent waiting for the NPU from about 14 ms to under
 
 ### Mask from the previous frame, plugged in (Oct 22, 2026)
 
-Plugged in, with the CPU on the `balanced-battery` profile (`epp` is `balance_power` in every row). Real camera, nothing reading Sepia Cam, OpenVINO 2025.1, `intel-npu-driver` 1.16.0, `--infer NPU --post cpu`. The old loop is commit ab5ee2a, where each frame waits for its own mask. The new loop is the commit that adds this entry: the NPU segments a frame while the CPU blends it with the previous frame's mask and sends it.
+Plugged in, with the CPU on the `balanced-battery` profile (`epp` is `balance_power` in every row). Real camera, nothing reading Sepia Cam, OpenVINO 2025.1, `intel-npu-driver` 1.16.0, `--infer NPU --post cpu`. The old loop is commit ab5ee2a, where each frame waits for its own mask. The new loop is commit d81e7b2: the NPU segments a frame while the CPU blends it with the previous frame's mask and sends it.
 
 **Power A/B:** `bench_matrix.py` with both loops, 3 runs from 21:36 to 21:53 IST. Idle package power was 1.93 to 2.12 W, except the first idle phase (3.17 W), which overlapped the harness starting up and raises the old loop's baseline in run 1. Mean ± standard deviation, power added over idle:
 
