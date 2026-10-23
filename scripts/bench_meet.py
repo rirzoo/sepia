@@ -1,13 +1,15 @@
 """Meet comparison (docs/BENCHMARK.md): the laptop's power in a Meet call with Meet's own blur, with no effects, and
-with Meet reading Sepia Cam, blur and blend on the CPU and then on the iGPU.
+with Meet reading Sepia Cam, blur and blend on the CPU and then on the iGPU, and with Meet reading Sepia Cam as a
+passthrough (sepiad --infer none: decode and send only), which shows what the pipeline costs without the model and blur.
 
 Run it in a terminal while you're in a Meet call in Chrome. Before each phase it says how to set Meet and waits for
 Enter; after SETTLE seconds it measures for SECONDS, and you leave the laptop alone until the notification. Each
-phase appends one row to bench.csv (infer = meet-blur, meet, or meet+NPU with post cpu or gpu). Power and cpu_pct
-are for the whole laptop (cpu_pct: 100 = one core); on meet+NPU rows, fps, latency and stage times come from sepiad
-over the same window. Even runs go in reverse order. Plugged in, use the battery CPU profile (Method).
+phase appends one row to bench.csv (infer = meet-blur, meet, meet+NPU with post cpu or gpu, or meet+none). Power and
+cpu_pct are for the whole laptop (cpu_pct: 100 = one core); on Sepia Cam rows, fps, latency and stage times come from
+sepiad over the same window. Even runs go in reverse order. Plugged in, use the battery CPU profile (Method).
 
-Run: ~/.local/share/sepia/venv/bin/python scripts/bench_meet.py [runs, default 3] [seconds, default 60]
+Run: ~/.local/share/sepia/venv/bin/python scripts/bench_meet.py [runs, default 3] [seconds, default 60] [phase ...]
+Phases are named meet-blur, meet, meet+NPU:cpu, meet+NPU:gpu and meet+none; the default is all five.
 """
 import csv
 import os
@@ -26,10 +28,11 @@ from sepiacam.sepiad import BAT, DOMAINS, EPP, RAPL, append_row, energy  # noqa:
 
 CSV = ROOT / "bench.csv"
 SETTLE = 20  # seconds after Enter: Meet loads its blur model, Chrome's encoder settles
-PHASES = [("meet-blur", "", "the real camera, Meet's background blur on"),
-          ("meet", "", "the real camera, Meet's effects off"),
-          ("meet+NPU", "cpu", "Sepia Cam, Meet's effects off"),
-          ("meet+NPU", "gpu", "Sepia Cam, Meet's effects off")]
+PHASES = [("meet-blur", "", [], "the real camera, Meet's background blur on"),  # label, post, sepiad flags, setting
+          ("meet", "", [], "the real camera, Meet's effects off"),
+          ("meet+NPU", "cpu", ["--post", "cpu"], "Sepia Cam, Meet's effects off"),
+          ("meet+NPU", "gpu", ["--post", "gpu"], "Sepia Cam, Meet's effects off"),
+          ("meet+none", "", ["--infer", "none"], "Sepia Cam, Meet's effects off")]
 
 
 def busy():
@@ -48,11 +51,11 @@ def measure(seconds):
     return row
 
 
-def phase(label, post, setting, seconds):
+def phase(label, post, flags, setting, seconds):
     sepiad, tmp = None, tempfile.mkdtemp(prefix="sepia-meet-")
-    if post:
+    if flags:
         input("In Meet, turn the camera off so sepiad can open it, then press Enter. ")
-        sepiad = subprocess.Popen([sys.executable, "-m", "sepiacam.sepiad", "--post", post, "--bench", "86400"],
+        sepiad = subprocess.Popen([sys.executable, "-m", "sepiacam.sepiad", *flags, "--bench", "86400"],
                                   cwd=tmp, env={**os.environ, "PYTHONPATH": str(ROOT)}, stdout=subprocess.PIPE, text=True)
         print(sepiad.stdout.readline().strip(), flush=True)  # printed once Sepia Cam is streaming
     input(f"Set Meet to {setting}, camera on, then press Enter and leave the laptop alone. ")
@@ -82,24 +85,28 @@ def main():
     if EPP.read_text().strip() != "balance_power":
         print("warning: CPU not on the battery profile; run `pkexec tuned-adm profile balanced-battery`", flush=True)
 
-    rows = {(label, post): [] for label, post, _ in PHASES}
+    names = sys.argv[3:]
+    phases = [p for p in PHASES if not names or ":".join(filter(None, p[:2])) in names]
+    if names and len(phases) != len(names):
+        sys.exit(f"unknown phase in {names}; phases: meet-blur, meet, meet+NPU:cpu, meet+NPU:gpu, meet+none")
+    rows = {(label, post): [] for label, post, *_ in phases}
     for run in range(1, runs + 1):
-        for label, post, setting in PHASES if run % 2 else PHASES[::-1]:
+        for label, post, flags, setting in phases if run % 2 else phases[::-1]:
             print(f"\nrun {run}: {label} {post}", flush=True)
-            rows[(label, post)].append(phase(label, post, setting, seconds))
+            rows[(label, post)].append(phase(label, post, flags, setting, seconds))
 
     def cell(values):
         sd = statistics.stdev(values) if len(values) > 1 else 0
         return f"{statistics.mean(values):.2f} ± {sd:.2f}"
 
-    base = rows[("meet", "")]
+    base = rows.get(("meet", ""), [])  # no meet phase: the over-meet column stays empty
     print("\n| phase | pkg W | over meet W | core W | gfx W | laptop cpu % | fps | latency ms | p95 ms |")
     print("|" + " --- |" * 9)
     for (label, post), rs in rows.items():
         over = [float(r["pkg_w"]) - float(b["pkg_w"]) for r, b in zip(rs, base)]
-        sepia = [f"{statistics.mean(float(r[k]) for r in rs):.1f}" if post else "" for k in
+        sepia = [f"{statistics.mean(float(r[k]) for r in rs):.1f}" if "fps" in rs[0] else "" for k in
                  ["fps", "latency_ms", "latency_p95_ms"]]
-        print(f"| {label} {post} | {cell([float(r['pkg_w']) for r in rs])} | {cell(over)} | "
+        print(f"| {label} {post} | {cell([float(r['pkg_w']) for r in rs])} | {cell(over) if over else ""} | "
               f"{cell([float(r['core_w']) for r in rs])} | {cell([float(r['gfx_w']) for r in rs])} | "
               f"{statistics.mean(r['cpu_pct'] for r in rs):.0f} | " + " | ".join(sepia) + " |")
 

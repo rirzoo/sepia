@@ -161,3 +161,12 @@ time,infer,post,battery,seconds,fps,latency_ms,latency_p95_ms,cpu_pct,npu_busy_p
 2026-10-23T12:32:42,NPU,cpu,Not charging,60.0,28.9,62.9,125.3,61,38,7.36,3.71,0.0,11.72,14.08,8.0,0.24,0.63,2.95,7.59,1.14,balance_power,standard,high
 2026-10-23T12:33:44,NPU,cpu,Not charging,60.0,29.8,50.5,55.3,53,38,7.24,3.29,0.0,11.41,16.48,7.2,0.27,0.58,0.2,7.8,1.04,balance_power,standard,medium
 2026-10-23T12:34:46,NPU,cpu,Not charging,60.0,29.4,55.8,78.6,58,38,7.25,3.58,0.0,11.57,15.04,7.02,0.24,0.58,2.7,7.3,1.06,balance_power,standard,high
+2026-10-23T13:12:54,meet,,Not charging,60.0,,,,104,,8.33,5.27,0.16,14.81,,,,,,,,balance_power,,
+2026-10-23T13:14:41,meet+NPU,cpu,Not charging,60.0,29.8,52.7,73.2,143,38,11.37,6.44,0.16,18.72,14.77,8.65,0.34,0.63,0.23,8.14,0.81,balance_power,standard,medium
+2026-10-23T13:16:18,meet+none,,Not charging,60.0,29.5,53.7,118.7,130,0,8.64,5.48,0.17,15.18,19.44,13.1,0.0,0.0,0.0,0.0,1.25,balance_power,standard,medium
+2026-10-23T13:18:00,meet+none,,Not charging,60.0,29.2,58.8,186.7,131,0,8.86,5.65,0.17,15.37,19.66,13.33,0.0,0.0,0.0,0.0,1.23,balance_power,standard,medium
+2026-10-23T13:19:45,meet+NPU,cpu,Not charging,60.0,29.7,52.7,74.8,144,38,11.94,6.95,0.17,19.54,14.95,8.59,0.34,0.63,0.23,8.04,0.79,balance_power,standard,medium
+2026-10-23T13:22:21,meet,,Not charging,60.0,,,,108,,8.57,5.53,0.17,15.05,,,,,,,,balance_power,,
+2026-10-23T13:24:34,meet,,Not charging,60.0,,,,103,,8.73,5.64,0.17,15.2,,,,,,,,balance_power,,
+2026-10-23T13:26:26,meet+NPU,cpu,Not charging,60.0,29.7,52.2,72.6,146,38,12.06,7.11,0.17,19.74,15.1,8.33,0.35,0.64,0.23,8.12,0.8,balance_power,standard,medium
+2026-10-23T13:29:30,meet+none,,Not charging,60.0,29.5,55.0,141.1,133,0,9.03,5.84,0.17,15.74,19.57,13.02,0.0,0.0,0.0,0.0,1.27,balance_power,standard,medium

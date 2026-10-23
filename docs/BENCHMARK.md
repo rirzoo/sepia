@@ -18,7 +18,7 @@ sepiad --infer NPU --post cpu --bench 60   # run 60 s, append one row to bench.c
 
 **Matrix:** inference on {CPU, GPU, NPU} × blur and blend on {CPU, iGPU}: 6 configurations.
 
-**Meet comparison:** `scripts/bench_meet.py` runs in a terminal during a Meet call. Before each phase it says how to set Meet and waits for Enter, then measures the whole laptop for 60 s.
+**Meet comparison:** `scripts/bench_meet.py` runs in a terminal during a Meet call. Before each phase it says how to set Meet and waits for Enter, then measures the whole laptop for 60 s. Phases can be picked by name; `meet+none` reads Sepia Cam with sepiad as a passthrough (`--infer none`).
 
 ## Metrics and how they're measured on this laptop
 
@@ -243,3 +243,21 @@ Offline, on a synthetic frame with one OpenCV thread, the new blur and blend too
 The default's p95 stayed under 59 ms in every run, the lowest so far, although blur and blend take about 0.7 ms longer than in the previous entry. High's p95 was 55.5, 125.3 and 78.6 ms, and the 125.3 ms run dropped to 28.9 fps, so high still goes over the target.
 
 **Decision:** the background-only blur and the 21×21 Standard become the default. Medium edges stay the default and high stays opt-in. The Meet script and the blur changes are commit 3f777e2.
+
+### Sepia Cam as a passthrough in a Meet call, plugged in (Oct 23, 2026)
+
+Oct 23, 13:11 to 13:30 IST: `scripts/bench_meet.py 3 60 meet meet+NPU:cpu meet+none`, 3 runs, in a Meet call in Chrome, as in the [Meet comparison](#meet-comparison-and-meet-style-blur-plugged-in-oct-23-2026). Plugged in, with the CPU on the `balanced-battery` profile (`epp` is `balance_power` in every row). OpenVINO 2025.1, `intel-npu-driver` 1.16.0, code at commit 9fa1f90: Standard blur, medium edges. In the passthrough phase sepiad runs with `--infer none`, so it decodes the camera's MJPEG and sends each frame to Sepia Cam unchanged, with no model and no blur. "Rest" is package minus CPU cores minus iGPU, where the NPU's power is counted. Mean ± standard deviation:
+
+| Phase | Package | Over Meet, no effects | CPU cores | iGPU | Rest | Laptop CPU | fps | Latency mean / p95 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Meet, no effects | 8.54 ± 0.20 W | | 5.48 W | 0.17 W | 2.90 W | 105% | | |
+| Sepia Cam, passthrough | 8.84 ± 0.20 W | +0.30 ± 0.01 W | 5.66 W | 0.17 W | 3.02 W | 131% | 29.4 | 55.8 / 148.8 ms |
+| Sepia Cam, `--post cpu` | 11.79 ± 0.37 W | +3.25 ± 0.18 W | 6.83 W | 0.17 W | 4.79 W | 144% | 29.7 | 52.5 / 73.5 ms |
+
+The pipeline costs little. Capture, CPU decode, sending BGR frames to Sepia Cam and Chrome reading them add 0.30 W to the call, although sepiad uses about a quarter of a core for it. Sending I420 instead of BGR or decoding on the iGPU could save at most that 0.30 W.
+
+The model and the blur add 2.95 W on top of the passthrough: 1.17 W on the CPU cores and 1.77 W in the rest of the package. Inference on the NPU alone took 1.95 W at 30 inferences per second in the [model-only benchmark](#model-only-power-oct-22-2026), close to the 2.36 W that Meet's whole blur added in the Meet comparison (a different session). The 16 MB model is the main cost. Meet's segmenter for its earlier blur has 193K parameters, about 400 KB ([Google Research](https://research.google/blog/background-features-in-google-meet-powered-by-web-ml/)).
+
+The passthrough's p95 was 118.7, 186.7 and 141.1 ms. With less work, the CPU ran at lower clocks on `balance_power`: decode took 13.1 to 13.3 ms against 8.3 to 8.7 ms with the model running. With the background-only blur, the in-call p95 was 72.6 to 74.8 ms, under the 78 to 84 ms of the old blur but still over 66 ms.
+
+**Decision:** Sepia Cam's extra watt in a call comes from the model and the blur, so I420 output and iGPU decode are dropped as power levers. The levers left are running the model on fewer frames and getting the 250 KB selfie model to load (see [ROADMAP.md](ROADMAP.md#open-questions)).

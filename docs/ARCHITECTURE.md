@@ -58,7 +58,7 @@ At 30 fps each frame has about 33 ms. The CPU-side steps (MJPEG decode, blur, bl
 | `sepiacam/sepiad.py` | The daemon: camera setup, the per-frame loop, `--bench` timing and power, and the bench.csv row. `build_model` adds the preprocessing and the softmax to the model; `edge_mask` shapes the mask's edge at the chosen level; `blur_background` does the blend and takes NumPy arrays or `cv2.UMat` for the iGPU |
 | `tests/test_sepiad.py` | Checks that the built-in preprocessing and softmax match doing them by hand, the blend maths, and that the CPU and iGPU paths give the same image. Also that both blur modes keep the person sharp and keep the person's colour out of the background next to them, and that higher edge levels give a narrower edge, with `high` on the picture's own edge. Run it with the venv's Python |
 | `pyproject.toml` | The `sepiacam` package and the `sepiad` command; only pyvirtualcam comes from pip |
-| `scripts/` | The input-scaling preview, the model-only power benchmark, and `bench_matrix.py`, which runs `sepiad --bench` over every configuration, or over those given on its command line, with idle phases in between, and `bench_meet.py`, which measures the laptop's power in a Meet call with Meet's own blur and with Meet reading Sepia Cam |
+| `scripts/` | The input-scaling preview, the model-only power benchmark, and `bench_matrix.py`, which runs `sepiad --bench` over every configuration, or over those given on its command line, with idle phases in between, and `bench_meet.py`, which measures the laptop's power in a Meet call with Meet's own blur, with Meet reading Sepia Cam, and with Sepia Cam as a passthrough |
 
 ## Design decisions
 
