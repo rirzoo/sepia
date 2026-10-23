@@ -6,11 +6,13 @@ Run: sepiad [--blur standard|portrait] [--edges low|medium|high] [--infer NPU|GP
 --bench runs for SECONDS after a short warm-up, prints the time per stage, fps, latency, CPU use and
 power, and appends one row to bench.csv in the current directory (docs/BENCHMARK.md). The infer stage is
 only the wait for the previous frame's mask, since inference overlaps the rest of the loop. Power needs the
-RAPL counters opened first (docs/SETUP.md, step 6); without them the power columns stay empty.
+RAPL counters opened first (docs/SETUP.md, step 6); without them the power columns stay empty. SIGUSR1 starts the
+window again, and SIGINT during a window writes its row; scripts/bench_meet.py uses both.
 """
 import argparse
 import csv
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -35,7 +37,7 @@ NPU_BUSY = Path("/sys/class/accel/accel0/device/npu_busy_time_us")
 EPP = Path("/sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference")  # balance_power = battery profile
 WARMUP = 30  # frames left out of --bench: OpenCL kernel builds, first inferences, camera exposure settling
 STAGES = ["wait", "decode", "pre", "infer", "mask", "post", "send"]
-BLURS = {"standard": (15, 15), "portrait": (5, 5)}  # Gaussian kernel on the 320x180 copy; portrait is the lighter blur
+BLURS = {"standard": (21, 21), "portrait": (5, 5)}  # Gaussian kernel on the 320x180 copy; portrait is the lighter blur
 
 
 def build_model(core):
@@ -64,9 +66,9 @@ def edge_mask(mask, frame, edges):
         return cv2.GaussianBlur(steep, (3, 3), 0)
     grey = cv2.cvtColor(cv2.resize(frame, (640, 360)), cv2.COLOR_BGR2GRAY)  # at 720p it cost 9 ms of latency
     i, m = cv2.resize(grey, (320, 180)).astype(np.float32), cv2.resize(steep, (320, 180))
-    box = lambda x: cv2.blur(x, (9, 9))
+    box = lambda x: cv2.blur(x, (5, 5))  # about 20 frame pixels across, narrow enough to follow hair
     mi, mm = box(i), box(m)
-    a = (box(i * m) - mi * mm) / (box(i * i) - mi * mi + 65.0)  # eps 65 = 0.001 in 0..1 units
+    a = (box(i * m) - mi * mm) / (box(i * i) - mi * mi + 20.0)  # eps 20 = 0.0003 in 0..1 units
     b = mm - a * mi
     # The filtered edge keeps faint tails on both sides; steepen it again (2q - 0.5, folded into a and b) and clip.
     q = cv2.add(cv2.multiply(cv2.resize(box(a) * 2, (640, 360)), grey, dtype=cv2.CV_32F),
@@ -75,10 +77,17 @@ def edge_mask(mask, frame, edges):
 
 
 def blur_background(frame, mask, blur="standard"):
-    """Blend the sharp frame over a blurred copy, weighted by the mask. Takes numpy arrays, or cv2.UMat for the iGPU."""
+    """Blend the sharp frame over a blurred background, weighted by the mask. Takes numpy arrays, or cv2.UMat for the iGPU.
+
+    Only the background goes into the blur, each pixel weighted by 1 - mask, so the person doesn't bleed into a halo
+    around them (Meet does the same). The blur runs on a 320x180 copy."""
     w = cv2.resize(mask, (W, H))
-    blurred = cv2.resize(cv2.GaussianBlur(cv2.resize(frame, (320, 180)), BLURS[blur], 0), (W, H))  # small blur, small copy
-    return cv2.blendLinear(frame, blurred, w, cv2.subtract(1.0, w))
+    bg, k = cv2.subtract(1.0, cv2.resize(mask, (320, 180))), BLURS[blur]
+    num = cv2.GaussianBlur(cv2.multiply(cv2.resize(frame, (320, 180)), cv2.cvtColor(bg, cv2.COLOR_GRAY2BGR),
+                                        dtype=cv2.CV_32F), k, 0)
+    den = cv2.cvtColor(cv2.GaussianBlur(bg, k, 0), cv2.COLOR_GRAY2BGR)
+    blurred = cv2.divide(num, den, dtype=cv2.CV_8U)  # weighted mean; 0/0 gives 0 inside the person
+    return cv2.blendLinear(frame, cv2.resize(blurred, (W, H)), w, cv2.subtract(1.0, w))
 
 
 def open_camera():
@@ -174,6 +183,8 @@ def main():
     cam = open_camera()
     times, latency = {s: [] for s in STAGES}, []
     frames, start, prev, started = 0, None, None, False
+    restart = []
+    signal.signal(signal.SIGUSR1, lambda *_: restart.append(True))
     try:
         with pyvirtualcam.Camera(W, H, FPS, device=VCAM, fmt=pyvirtualcam.PixelFormat.BGR) as vcam:
             print(f"sepiad: {CAM} -> {vcam.device}, blur {args.blur}, edges {args.edges}, infer {args.infer}, "
@@ -215,6 +226,9 @@ def main():
 
                 if not args.bench:
                     continue
+                if restart:
+                    restart.clear()
+                    times, latency, frames, start = {s: [] for s in STAGES}, [], 0, None
                 frames += 1
                 if not start:
                     if frames == WARMUP:
@@ -227,7 +241,8 @@ def main():
                         report(args, start, counters(), frames, times, latency)
                         return
     except KeyboardInterrupt:
-        pass
+        if start and frames:
+            report(args, start, counters(), frames, times, latency)
     finally:
         cam.release()
 

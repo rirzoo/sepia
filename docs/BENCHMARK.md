@@ -18,6 +18,8 @@ sepiad --infer NPU --post cpu --bench 60   # run 60 s, append one row to bench.c
 
 **Matrix:** inference on {CPU, GPU, NPU} × blur and blend on {CPU, iGPU}: 6 configurations.
 
+**Meet comparison:** `scripts/bench_meet.py` runs in a terminal during a Meet call. Before each phase it says how to set Meet and waits for Enter, then measures the whole laptop for 60 s.
+
 ## Metrics and how they're measured on this laptop
 
 | Metric | Source | Root? |
@@ -207,3 +209,37 @@ The 0.33 W gap is about twice the spread. The latency-only runs, which alternate
 The p95 moved by about 20 ms between rounds for every variant, and the first round was the highest for all three, so Portrait and the default are equal within the spread. High's p95 was over 66 ms in every round (96.9, 72.5 and 77.4 ms).
 
 **Decision:** medium edges and Standard blur are the defaults; medium was picked in a live preview and costs the same as low. Portrait costs the same as Standard. High stays available at about 4 ms more mean latency, with its p95 over the 66 ms target. None of the levels changed package power measurably. The cheaper versions are commit ea017e1.
+
+### Meet comparison and Meet-style blur, plugged in (Oct 23, 2026)
+
+Plugged in, with the CPU on the `balanced-battery` profile (`epp` is `balance_power` in every row). OpenVINO 2025.1, `intel-npu-driver` 1.16.0, sepiad with `--infer NPU`, medium edges.
+
+**Meet comparison,** Oct 23, 11:42 to 12:03 IST: `scripts/bench_meet.py`, 3 runs, in a Meet call in Chrome with the microphone on in every phase. Each phase measured the whole laptop for 60 s, after 20 s for Meet to settle. "Meet's blur" is Meet's full background blur on the real camera. In the Sepia Cam rows Meet reads Sepia Cam with its own effects off, and fps and latency come from sepiad over the same window. Laptop CPU counts every process (100% is one core). These runs used the old Standard blur, 15×15 over the whole frame. Mean ± standard deviation:
+
+| Phase | Package | Over Meet, no effects | CPU cores | iGPU | Laptop CPU | fps | Latency mean / p95 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Meet, no effects | 8.93 ± 0.05 W | | 5.81 W | 0.16 W | 131% | | |
+| Meet's blur | 11.29 ± 0.09 W | +2.36 ± 0.06 W | 6.35 W | 1.03 W | 180% | | |
+| Sepia Cam, `--post cpu` | 12.28 ± 0.17 W | +3.35 ± 0.13 W | 7.37 W | 0.16 W | 169% | 29.7 | 54.0 / 84.2 ms |
+| Sepia Cam, `--post gpu` | 12.47 ± 0.15 W | +3.54 ± 0.12 W | 6.95 W | 0.48 W | 159% | 29.7 | 52.5 / 77.7 ms |
+
+Meet's blur costs about 1 W less than Sepia Cam. Over Meet with no effects, Meet's blur adds 0.54 W on the CPU cores, 0.87 W on the iGPU and 0.95 W in the rest of the package. Sepia Cam with `--post cpu` adds 1.56 W on the cores, nothing on the iGPU and 1.79 W in the rest. In a check after the runs, Chrome had only the iGPU's render node open, not the NPU, and the NPU's busy counter didn't move. That fits Google's description of Meet's HD segmentation running on the GPU through WebGL ([Google Research](https://research.google/blog/high-definition-segmentation-in-google-meet/)). Where Sepia's extra watt goes is not measured yet: sepiad decodes the camera's MJPEG on the CPU, and Chrome converts the BGR frames it reads from Sepia Cam. A Meet phase with `sepiad --infer none` would show how much of the gap that pipeline accounts for.
+
+`--post cpu` used 0.19 W less than `--post gpu`, and `--post gpu` had a 6.5 ms lower p95. Both gaps are about one standard deviation, so where blur and blend run is still open. With either option the p95 went over 66 ms during the call, while the mean stayed at 52 to 54 ms.
+
+**Meet-style blur,** Oct 23, 12:29 to 12:35 IST. Real camera, nothing reading Sepia Cam, `sepiad --bench 60` 3 times per variant, alternating. Three changes, after Google's description of Meet's blur ([Google Research](https://research.google/blog/background-features-in-google-meet-powered-by-web-ml/)) and a look at Meet's own preview:
+
+- The blur weights each pixel by 1 − mask, so only the background goes into it and the person's colours no longer bleed into a halo around them.
+- Standard is 21×21 instead of 15×15. It was picked in a live preview, after 31×31 looked too strong.
+- High's guided filter averages over a 5×5 window at 320×180 instead of 9×9, with eps 20 instead of 65. In a live preview it followed hair more closely, and in an offline timing it cost the same 3.1 ms.
+
+Offline, on a synthetic frame with one OpenCV thread, the new blur and blend took 12.30 ms and the old one 11.18 ms.
+
+| Variant | fps | Latency mean / p95 | Package (raw) | Mask and edge | Blur and blend |
+| --- | --- | --- | --- | --- | --- |
+| medium, Standard (default) | 29.8 | 51.1 / 56.2 ms | 7.54 W | 0.21 ms | 8.06 ms |
+| high, Standard | 29.4 | 56.6 / 86.5 ms | 7.32 W | 2.72 ms | 7.33 ms |
+
+The default's p95 stayed under 59 ms in every run, the lowest so far, although blur and blend take about 0.7 ms longer than in the previous entry. High's p95 was 55.5, 125.3 and 78.6 ms, and the 125.3 ms run dropped to 28.9 fps, so high still goes over the target.
+
+**Decision:** the background-only blur and the 21×21 Standard become the default. Medium edges stay the default and high stays opt-in.

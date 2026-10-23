@@ -38,4 +38,8 @@ for edges in ("low", "medium", "high"):
     width[edges] = int(((row > 0.1) & (row < 0.9)).sum())
 assert width["low"] > width["medium"] > width["high"], f"sharper edges are narrower: {width}"
 assert abs(int(np.argmax(cv2.resize(edge_mask(coarse, scene, "high"), (W, H))[H // 2] < 0.5)) - 640) <= 3, "high: at x = 640"
+step = np.zeros((256, 256), np.float32)
+step[:, :128] = 1
+for blur in BLURS:  # the dark person must not bleed into the bright background next to them
+    assert blur_background(scene, cv2.GaussianBlur(step, (9, 9), 0), blur)[H // 2, 650:700].min() >= 185, f"{blur}: no halo"
 print("ok")
