@@ -69,6 +69,15 @@ Four things must work before sepiad: the camera, the NPU driver, OpenVINO seeing
    sudo tuned-adm profile balanced-battery   # before the run
    sudo tuned-adm profile balanced           # after
    ```
+8. **PP-HumanSeg model (for `--model humanseg`).** Download PaddleSeg's portrait model into its own folder and convert it once to OpenVINO IR. Fedora's OpenVINO 2025.1 lists the Paddle frontend only with protobuf preloaded: `libopenvino_paddle_frontend.so` uses protobuf without linking against it, and the TensorFlow frontend has the same fault (checked Oct 23, 2026). The converted model loads without the preload. The zip is 3,568,126 bytes, SHA-256 `d7b6835ce8faec098d8286a53d91eed8ad22186fae9322acc653d0a0943d4b1b`.
+
+   ```bash
+   mkdir models/pp_humanseg_v2_lite && cd models/pp_humanseg_v2_lite
+   curl -LO https://paddleseg.bj.bcebos.com/dygraph/pp_humanseg_v2/portrait_pp_humansegv2_lite_256x144_smaller/portrait_pp_humansegv2_lite_256x144_inference_model_with_softmax.zip
+   unzip -j portrait_*.zip '*/model.pdmodel' '*/model.pdiparams' '*/deploy.yaml' && rm portrait_*.zip
+   LD_PRELOAD=/usr/lib64/libprotobuf.so.30 ~/.local/share/sepia/venv/bin/python -c "import openvino as ov; \
+     m = ov.Core().read_model('model.pdmodel'); m.reshape([1, 3, 144, 256]); ov.save_model(m, 'model.xml')"
+   ```
 
 ## Sources
 

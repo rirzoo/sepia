@@ -41,10 +41,10 @@ Real-time eye-contact correction on an 11 TOPS NPU, model-based relighting, and 
 
 ## Risks
 
-With the full blur pipeline on battery, NPU inference adds 6.19 W of package power against 10.12 W for the iGPU ([BENCHMARK.md](BENCHMARK.md#blur-pipeline-power-matrix-oct-22-2026)). In a Meet call, Sepia Cam adds 3.35 W of package power and Meet's own blur 2.36 W ([BENCHMARK.md](BENCHMARK.md#meet-comparison-and-meet-style-blur-plugged-in-oct-23-2026)). Most of Sepia's cost is the model and the blur: with sepiad as a passthrough, Sepia Cam adds only 0.30 W ([BENCHMARK.md](BENCHMARK.md#sepia-cam-as-a-passthrough-in-a-meet-call-plugged-in-oct-23-2026)). Cutting the model's power is the biggest open problem now.
+With the full blur pipeline on battery, NPU inference adds 6.19 W of package power against 10.12 W for the iGPU ([BENCHMARK.md](BENCHMARK.md#blur-pipeline-power-matrix-oct-22-2026)). In a Meet call, Sepia Cam adds 3.35 W of package power and Meet's own blur 2.36 W ([BENCHMARK.md](BENCHMARK.md#meet-comparison-and-meet-style-blur-plugged-in-oct-23-2026)). Most of Sepia's cost is the model and the blur: with sepiad as a passthrough, Sepia Cam adds only 0.30 W ([BENCHMARK.md](BENCHMARK.md#sepia-cam-as-a-passthrough-in-a-meet-call-plugged-in-oct-23-2026)). The multiclass model stays for its quality, and PP-HumanSeg v2 Lite is the lower-power fallback; how much it saves in a call is the next thing to measure.
 
 - **Latency on battery.** With the `balance_power` profile the CPU stays at low clocks; with no effects the camera path even falls to about 26 fps with 129 ms of latency, because MJPEG decode takes 24 to 31 ms. Blending each frame with the previous frame's mask brought the NPU pipeline to 29.7 fps with 51.1 ms of latency on average and 60.9 ms at the 95th percentile ([BENCHMARK.md](BENCHMARK.md#mask-from-the-previous-frame-plugged-in-oct-22-2026)). About 33 ms of that is the camera's own frame time. In a Meet call, with Chrome encoding on the same CPU, the p95 rose to 78 to 84 ms while the mean stayed at 52 to 54 ms, and to 72.6 to 74.8 ms with the background-only blur. Fewer camera buffers and blur on the iGPU didn't help. Options left: a cheaper blend, or blending only near the mask's edge.
-- **16 MB model, no CPU fallback.** The multiclass model is about 60× the size of the small selfie models and takes 52 ms on the CPU, so a laptop without a working NPU or iGPU can't run it at 30 fps. Mitigation: rewrite the small models' custom operation (see Open questions).
+- **16 MB model on the CPU.** The multiclass model takes 52 ms on the CPU, so a laptop without a working NPU or iGPU can't run it at 30 fps. The fallback, PP-HumanSeg v2 Lite (`--model humanseg`), took 7.73 ms on the CPU in an offline timing; the full pipeline on the CPU hasn't been measured.
 - **Pinned old NPU driver.** Sepia needs `intel-npu-driver` 1.16.0 to match Fedora's OpenVINO 2025.1. Intel's published test coverage for Meteor Lake (about 83% of the extended suite) is for 1.38.0 ([notes](https://www.linuxcompatible.org/story/intel-npu-driver-1380-adds-ubuntu-2604-lts-support-and-major-kernel-70-upgrade/)). The current model runs on 1.16; later models may not. Removing the version lock before Fedora updates OpenVINO breaks the NPU again. Other users of Level 2 packages will hit the same mismatch.
 - **Darker image at a fixed 30 fps.** With dynamic frame rate off, exposure is capped at 33 ms, so the picture is darker in low light (mean brightness 82/255 in an evening room). Portrait light and the brightness-normalisation step compensate. The mask also holds up much better in a dark room with −1 to 1 input scaling than with 0 to 1.
 - **Mask lag vs flicker.** Temporal smoothing stops flicker but makes edges trail fast movement; the 0.6/0.4 blend needs tuning.
@@ -53,7 +53,6 @@ With the full blur pipeline on battery, NPU inference adds 6.19 W of package pow
 
 ## Open questions
 
-- Is it worth rewriting the small models' `Convolution2DTransposeBias` as a standard transposed convolution plus bias, to get the 250 KB model back (and a viable CPU path)? In a call the multiclass model and the blur cost 2.95 W, against 2.36 W for Meet's whole blur.
 - Can the edges get as sharp as Meet's? Meet's HD model takes 512×288 input. Sepia's squeezes the frame into 256×256, so one mask pixel covers about 5×3 frame pixels.
 - Which on-demand detection works with Chrome: the v4l2loopback event or `/proc` polling?
 
@@ -75,6 +74,8 @@ With the full blur pipeline on battery, NPU inference adds 6.19 W of package pow
 - [x] Measure Meet's own blur against Meet using Sepia Cam: in a call Meet's blur adds 2.36 W, Sepia Cam 3.35 W with `--post cpu` and 3.54 W with `--post gpu`. Where blur and blend run is still open ([BENCHMARK.md](BENCHMARK.md#meet-comparison-and-meet-style-blur-plugged-in-oct-23-2026))
 - [x] Blur only the background, as Meet does, so the person has no halo; Standard is 21×21 and high follows hair more closely
 - [x] Find where Sepia Cam's extra watt goes in a call: as a passthrough it adds 0.30 W, so the model and the blur cost the rest ([BENCHMARK.md](BENCHMARK.md#sepia-cam-as-a-passthrough-in-a-meet-call-plugged-in-oct-23-2026))
-- [ ] Cut the model's power in a call: run it on fewer frames, or get the 250 KB model to load (see Open questions)
+- [x] Try smaller models: the 250 KB MediaPipe models load after a rewrite but lose the hand; PP-HumanSeg v2 Lite becomes the fallback (`--model humanseg`), and the new `crisp` edges the default ([ARCHITECTURE.md](ARCHITECTURE.md#the-multiclass-model-with-pp-humanseg-as-the-fallback))
+- [ ] Measure PP-HumanSeg against the multiclass model in a Meet call
+- [ ] Try Robust Video Matting (MobileNetV3) against the multiclass model, to keep if it comes close in watts and latency
 - [ ] Add sepiactl and the systemd user service
 - [ ] Add automatic framing, then portrait light
