@@ -242,4 +242,4 @@ Offline, on a synthetic frame with one OpenCV thread, the new blur and blend too
 
 The default's p95 stayed under 59 ms in every run, the lowest so far, although blur and blend take about 0.7 ms longer than in the previous entry. High's p95 was 55.5, 125.3 and 78.6 ms, and the 125.3 ms run dropped to 28.9 fps, so high still goes over the target.
 
-**Decision:** the background-only blur and the 21×21 Standard become the default. Medium edges stay the default and high stays opt-in.
+**Decision:** the background-only blur and the 21×21 Standard become the default. Medium edges stay the default and high stays opt-in. The Meet script and the blur changes are commit 3f777e2.
