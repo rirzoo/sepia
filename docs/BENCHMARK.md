@@ -206,4 +206,4 @@ The 0.33 W gap is about twice the spread. The latency-only runs, which alternate
 
 The p95 moved by about 20 ms between rounds for every variant, and the first round was the highest for all three, so Portrait and the default are equal within the spread. High's p95 was over 66 ms in every round (96.9, 72.5 and 77.4 ms).
 
-**Decision:** medium edges and Standard blur are the defaults; medium was picked in a live preview and costs the same as low. Portrait costs the same as Standard. High stays available at about 4 ms more mean latency, with its p95 over the 66 ms target. None of the levels changed package power measurably. The cheaper versions are the code in the commit that adds this entry.
+**Decision:** medium edges and Standard blur are the defaults; medium was picked in a live preview and costs the same as low. Portrait costs the same as Standard. High stays available at about 4 ms more mean latency, with its p95 over the 66 ms target. None of the levels changed package power measurably. The cheaper versions are commit ea017e1.
