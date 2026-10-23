@@ -170,3 +170,40 @@ With frames no longer queueing, two camera buffers instead of OpenCV's default f
 **On power saver:** earlier that evening, at 20% battery, GNOME had switched to power saver (`epp` is `power`). In two 60 s runs each, the old loop fell to 21.5 fps with 215.8 ms mean and 235.1 ms p95 latency, while the new loop held 29.8 fps with 63.0 ms mean and 76.2 ms p95.
 
 **Decision:** sepiad blends each frame with the previous frame's mask. The camera keeps OpenCV's default buffers, and blur and blend stay on the CPU. Latency is 51.1 ms mean and 60.9 ms p95, of which about 33 ms is the camera's own frame time.
+
+### Blur modes and edge levels, plugged in (Oct 22 and 23, 2026)
+
+Plugged in, with the CPU on the `balanced-battery` profile (`epp` is `balance_power` in every row). Real camera, nothing reading Sepia Cam, OpenVINO 2025.1, `intel-npu-driver` 1.16.0, `--infer NPU --post cpu`, Standard blur unless named. The latency-only runs are `sepiad --bench 60` 3 times per variant, alternating, and their package power is the raw reading. "Mask and edge" is the `mask_ms` column: temporal smoothing plus the edge level. The bench.csv header committed in d81e7b2 had a stray carriage return before `epp`; it is fixed and also names the new `blur` and `edges` columns.
+
+**First versions,** Oct 22, 23:44 to 23:59 IST. High did its last steps at 720p, and Portrait blurred a 640×360 copy with a 9×9 kernel. "Buffers kept" set glibc's `M_MMAP_THRESHOLD` and `M_TRIM_THRESHOLD` to 1 GiB, so freed frame-sized buffers stay in the heap.
+
+| Variant | fps | Latency mean / p95 | Package (raw) | Mask and edge | Blur and blend |
+| --- | --- | --- | --- | --- | --- |
+| medium, buffers not kept | 29.8 | 51.5 / 65.4 ms | 8.00 W | 0.23 ms | 8.03 ms |
+| medium, buffers kept | 29.8 | 52.0 / 68.2 ms | 7.97 W | 0.23 ms | 8.06 ms |
+| low, buffers kept | 29.8 | 51.6 / 66.4 ms | 8.07 W | 0.16 ms | 8.09 ms |
+| high at 720p, buffers kept | 29.3 | 60.4 / 100.2 ms | 8.75 W | 4.91 ms | 6.54 ms |
+| Portrait at 640×360, medium, buffers kept | 29.8 | 53.7 / 77.4 ms | 8.01 W | 0.24 ms | 9.08 ms |
+
+In an offline timing on a synthetic frame, keeping buffers took blur and blend from 9.3 to 5.4 ms and high from 7.9 to 3.2 ms. With the camera running it changed nothing, so sepiad doesn't set it. Low and medium cost the same.
+
+**Power A/B,** Oct 22, 23:59 to Oct 23, 00:16 IST: `bench_matrix.py`, 3 runs, commit 5070788 (low edges) against medium edges with buffers kept. Idle package power was 2.96 to 3.43 W, about 1 W higher than earlier that evening and less steady. Mean ± standard deviation, power added over idle:
+
+| Variant | Package | CPU cores | fps | Latency mean / p95 |
+| --- | --- | --- | --- | --- |
+| 5070788, low | +4.72 ± 0.11 W | +2.85 W | 29.6 | 54.0 / 75.4 ms |
+| medium, buffers kept | +5.05 ± 0.15 W | +3.06 W | 29.8 | 51.4 / 64.4 ms |
+
+The 0.33 W gap is about twice the spread. The latency-only runs, which alternated the variants within minutes, show no power difference between low and medium or with buffers kept, so the unsteady idle is the more likely cause.
+
+**Cheaper high and Portrait,** Oct 23, 10:43 to 10:52 IST, buffers not kept. High does its full-size steps at 640×360, and Portrait blurs the same 320×180 copy as Standard with a 5×5 kernel. Package power leaves out the first round, where the default's run read 10.17 W.
+
+| Variant | fps | Latency mean / p95 | Package (raw) | Mask and edge | Blur and blend |
+| --- | --- | --- | --- | --- | --- |
+| medium, Standard (default) | 29.8 | 51.9 / 63.8 ms | 7.81 W | 0.21 ms | 7.38 ms |
+| high, Standard | 29.5 | 55.7 / 82.3 ms | 7.83 W | 2.58 ms | 6.72 ms |
+| medium, Portrait | 29.8 | 51.5 / 67.9 ms | 7.70 W | 0.21 ms | 7.05 ms |
+
+The p95 moved by about 20 ms between rounds for every variant, and the first round was the highest for all three, so Portrait and the default are equal within the spread. High's p95 was over 66 ms in every round (96.9, 72.5 and 77.4 ms).
+
+**Decision:** medium edges and Standard blur are the defaults; medium was picked in a live preview and costs the same as low. Portrait costs the same as Standard. High stays available at about 4 ms more mean latency, with its p95 over the 66 ms target. None of the levels changed package power measurably. The cheaper versions are the code in the commit that adds this entry.

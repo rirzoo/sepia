@@ -11,7 +11,7 @@ The project grows in four levels; the focus is Levels 1 and 2, which are small e
 1. Setup checks pass ([SETUP.md](SETUP.md), prerequisites 1–4).
 2. Blur-only pipeline with `--infer`, `--post` and `--bench`. This gives both the core of v1 and the benchmark harness.
 3. Run the benchmark matrix and baselines ([BENCHMARK.md](BENCHMARK.md)); choose default devices from the data.
-4. Blur modes and edge levels ([OVERVIEW.md](OVERVIEW.md#feature-set)): Standard and a lighter Portrait blur, and edges at low, medium or high. Low is today's mask scaled up. Medium sharpens the mask's edge at 256×256, which costs almost nothing. High refines the edge against the full frame with a guided filter, on the CPU or the iGPU. Each level is measured in ms and W, and each has to stay inside the latency target. Open question: should high use the frame's own mask instead of the previous frame's?
+4. Blur modes and edge levels ([OVERVIEW.md](OVERVIEW.md#feature-set)): Standard and a lighter Portrait blur, and edges at low, medium or high ([ARCHITECTURE.md](ARCHITECTURE.md#edge-levels-and-blur-modes)).
 5. `sepiactl` over a Unix socket; `sepiad` as a systemd user service.
 6. Automatic framing from the mask's person box, with a smoothed crop window.
 7. Portrait light on the mask's face-skin region.
@@ -70,7 +70,7 @@ With the full blur pipeline on battery, NPU inference adds 6.19 W of package pow
 - [x] Measure plugged in with the CPU on the battery profile; it matches battery runs within their spread ([BENCHMARK.md](BENCHMARK.md#method))
 - [x] Blend each frame with the previous frame's mask: 51.1 ms mean and 60.9 ms p95 latency, from 66.7 and 86.2 ms; fewer camera buffers and iGPU blur didn't help
 - [ ] Decide whether a 60.9 ms p95 is far enough inside 66 ms, or cut blend time further (see Risks)
-- [ ] Add the blur modes and edge levels (Level 1, item 4)
+- [x] Add the blur modes and edge levels: Standard blur and medium edges by default; Portrait costs the same as Standard; high adds about 4 ms and goes over the p95 target ([ARCHITECTURE.md](ARCHITECTURE.md#edge-levels-and-blur-modes))
 - [ ] Measure Meet's own blur against Meet using Sepia Cam, running Sepia Cam with both `--post cpu` and `--post gpu`, and settle where blur and blend run
 - [ ] Add sepiactl and the systemd user service
 - [ ] Add automatic framing, then portrait light

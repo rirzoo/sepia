@@ -1,6 +1,7 @@
 """sepiad: read the webcam, blur the background, and write the result to the Sepia Cam virtual camera.
 
-Run: sepiad [--infer NPU|GPU|CPU|none] [--post cpu|gpu] [--bench SECONDS]
+Run: sepiad [--blur standard|portrait] [--edges low|medium|high] [--infer NPU|GPU|CPU|none] [--post cpu|gpu]
+           [--bench SECONDS]
 
 --bench runs for SECONDS after a short warm-up, prints the time per stage, fps, latency, CPU use and
 power, and appends one row to bench.csv in the current directory (docs/BENCHMARK.md). The infer stage is
@@ -34,6 +35,7 @@ NPU_BUSY = Path("/sys/class/accel/accel0/device/npu_busy_time_us")
 EPP = Path("/sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference")  # balance_power = battery profile
 WARMUP = 30  # frames left out of --bench: OpenCL kernel builds, first inferences, camera exposure settling
 STAGES = ["wait", "decode", "pre", "infer", "mask", "post", "send"]
+BLURS = {"standard": (15, 15), "portrait": (5, 5)}  # Gaussian kernel on the 320x180 copy; portrait is the lighter blur
 
 
 def build_model(core):
@@ -52,10 +54,30 @@ def build_model(core):
     return ppp.build()
 
 
-def blur_background(frame, mask):
+def edge_mask(mask, frame, edges):
+    """Blend weights from the 256x256 mask. low: feathered, cheapest. medium: a steeper edge. high: the edge follows
+    the frame's own edges at 640x360, through a guided filter computed at 320x180 (He and Sun, fast guided filter)."""
+    if edges == "low":
+        return cv2.GaussianBlur(mask, (7, 7), 0)
+    steep = np.clip(mask * 2 - 0.5, 0, 1)  # twice as steep around 0.5
+    if edges == "medium":
+        return cv2.GaussianBlur(steep, (3, 3), 0)
+    grey = cv2.cvtColor(cv2.resize(frame, (640, 360)), cv2.COLOR_BGR2GRAY)  # at 720p it cost 9 ms of latency
+    i, m = cv2.resize(grey, (320, 180)).astype(np.float32), cv2.resize(steep, (320, 180))
+    box = lambda x: cv2.blur(x, (9, 9))
+    mi, mm = box(i), box(m)
+    a = (box(i * m) - mi * mm) / (box(i * i) - mi * mi + 65.0)  # eps 65 = 0.001 in 0..1 units
+    b = mm - a * mi
+    # The filtered edge keeps faint tails on both sides; steepen it again (2q - 0.5, folded into a and b) and clip.
+    q = cv2.add(cv2.multiply(cv2.resize(box(a) * 2, (640, 360)), grey, dtype=cv2.CV_32F),
+                cv2.resize(box(b) * 2 - 0.5, (640, 360)))
+    return cv2.threshold(cv2.threshold(q, 1, 1, cv2.THRESH_TRUNC)[1], 0, 0, cv2.THRESH_TOZERO)[1]
+
+
+def blur_background(frame, mask, blur="standard"):
     """Blend the sharp frame over a blurred copy, weighted by the mask. Takes numpy arrays, or cv2.UMat for the iGPU."""
     w = cv2.resize(mask, (W, H))
-    blurred = cv2.resize(cv2.GaussianBlur(cv2.resize(frame, (320, 180)), (15, 15), 0), (W, H))  # small blur on a small copy
+    blurred = cv2.resize(cv2.GaussianBlur(cv2.resize(frame, (320, 180)), BLURS[blur], 0), (W, H))  # small blur, small copy
     return cv2.blendLinear(frame, blurred, w, cv2.subtract(1.0, w))
 
 
@@ -91,6 +113,8 @@ def report(args, start, end, frames, times, latency):
         "time": datetime.now().isoformat(timespec="seconds"),
         "infer": args.infer,
         "post": args.post,
+        "blur": args.blur,
+        "edges": args.edges,
         "battery": (BAT / "status").read_text().strip(),
         "epp": EPP.read_text().strip(),
         "seconds": round(wall, 1),
@@ -114,7 +138,7 @@ def report(args, start, end, frames, times, latency):
 
 
 COLUMNS = ["time", "infer", "post", "battery", "seconds", "fps", "latency_ms", "latency_p95_ms", "cpu_pct",
-           "npu_busy_pct", *(f"{k}_w" for k in DOMAINS), *(f"{s}_ms" for s in STAGES), "epp"]
+           "npu_busy_pct", *(f"{k}_w" for k in DOMAINS), *(f"{s}_ms" for s in STAGES), "epp", "blur", "edges"]
 
 
 def append_row(row, path="bench.csv"):
@@ -128,6 +152,9 @@ def append_row(row, path="bench.csv"):
 
 def main():
     p = argparse.ArgumentParser(description="Blur the webcam background and write it to the Sepia Cam virtual camera.")
+    p.add_argument("--blur", default="standard", choices=list(BLURS), help="standard, or portrait for a lighter blur")
+    p.add_argument("--edges", default="medium", choices=["low", "medium", "high"],
+                   help="edge sharpness (default medium); high follows hair most closely and adds about 4 ms of latency")
     p.add_argument("--infer", default="NPU", choices=["NPU", "GPU", "CPU", "none"],
                    help="device that runs the model (default NPU); none passes frames through, as a baseline")
     p.add_argument("--post", default="cpu", choices=["cpu", "gpu"], help="where blur and blend run; gpu uses OpenCL")
@@ -149,7 +176,8 @@ def main():
     frames, start, prev, started = 0, None, None, False
     try:
         with pyvirtualcam.Camera(W, H, FPS, device=VCAM, fmt=pyvirtualcam.PixelFormat.BGR) as vcam:
-            print(f"sepiad: {CAM} -> {vcam.device}, infer {args.infer}, post {args.post}", flush=True)
+            print(f"sepiad: {CAM} -> {vcam.device}, blur {args.blur}, edges {args.edges}, infer {args.infer}, "
+                  f"post {args.post}", flush=True)
             while True:
                 t = [time.perf_counter()]
                 ok, buf = cam.read()
@@ -174,9 +202,9 @@ def main():
                     req.start_async([inp[None]])
                     started = True
                     t.append(time.perf_counter())
-                    feathered = cv2.GaussianBlur(prev, (7, 7), 0)            # soft edges, cheap at 256x256
+                    weights = edge_mask(prev, frame, args.edges)
                     t.append(time.perf_counter())
-                    out = blur_background(upload(frame), upload(feathered))
+                    out = blur_background(upload(frame), upload(weights), args.blur)
                     if isinstance(out, cv2.UMat):
                         out = out.get()
                     t.append(time.perf_counter())

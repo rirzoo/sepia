@@ -51,6 +51,6 @@ Version 1 builds three camera effects (blur, framing, portrait light) on one sha
 | Skip | Eye contact (Standard / Teleprompter) | Redraws eyes to look at the camera | Needs a gaze-redirection model; no good open one ready | – | Hard |
 | Skip | Creative filters | Stylised looks (illustrated, watercolour) | Style-transfer models; heavy | NPU | Hard |
 
-**Edge sharpness:** the blur's edge comes in three levels, low, medium and high. Sharper edges follow hair and shoulders more closely but cost more power, so users choose. Each level is measured, and all of them stay inside the latency budget ([ROADMAP.md](ROADMAP.md#level-1-personal-tool-plus-benchmark-focus)).
+**Edge sharpness:** the blur's edge comes in three levels, low, medium and high, so users can choose softer or sharper edges. Low and medium cost the same, and medium is the default. High follows hair and shoulders more closely and adds about 4 ms of latency. Measured power was the same for all three ([ARCHITECTURE.md](ARCHITECTURE.md#edge-levels-and-blur-modes)).
 
 **Not a Studio Effect:** whole-image exposure, white balance and contrast come from the camera. This laptop's USB camera handles them in firmware. If needed, sepiad adds a brightness-normalisation step before inference.

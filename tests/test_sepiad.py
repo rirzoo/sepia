@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 import openvino as ov
 
-from sepiacam.sepiad import H, MODEL, W, blur_background, build_model
+from sepiacam.sepiad import BLURS, H, MODEL, W, blur_background, build_model, edge_mask
 
 # The built-in pre- and post-processing must match doing it by hand: RGB, -1..1, softmax, 1 - P(background).
 core = ov.Core()
@@ -20,4 +20,22 @@ assert not np.array_equal(blur_background(frame, np.zeros((256, 256), np.float32
 cpu = blur_background(frame, mask)
 gpu = blur_background(cv2.UMat(frame), cv2.UMat(mask)).get()
 assert np.abs(cpu.astype(int) - gpu).max() <= 8, "iGPU and CPU paths agree"
+for blur in BLURS:
+    assert np.array_equal(blur_background(frame, np.ones((256, 256), np.float32), blur), frame), f"{blur}: person kept"
+assert not np.array_equal(*(blur_background(frame, np.zeros((256, 256), np.float32), b) for b in BLURS)), "modes differ"
+
+# A dark person on the left of a bright background, and a coarse mask of them: higher edge levels give a narrower
+# transition from person to background, and high puts it at the frame's own edge (x = 640).
+scene = np.full((H, W, 3), 200, np.uint8)
+scene[:, :640] = 60
+coarse = np.zeros((256, 256), np.float32)
+coarse[:, :128] = 1
+coarse = cv2.GaussianBlur(coarse, (15, 15), 0)
+width = {}
+for edges in ("low", "medium", "high"):
+    row = cv2.resize(edge_mask(coarse, scene, edges), (W, H))[H // 2]
+    assert -0.05 < row.min() and row.max() < 1.05, f"{edges}: weights in range"
+    width[edges] = int(((row > 0.1) & (row < 0.9)).sum())
+assert width["low"] > width["medium"] > width["high"], f"sharper edges are narrower: {width}"
+assert abs(int(np.argmax(cv2.resize(edge_mask(coarse, scene, "high"), (W, H))[H // 2] < 0.5)) - 640) <= 3, "high: at x = 640"
 print("ok")

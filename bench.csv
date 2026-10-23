@@ -1,4 +1,4 @@
-time,infer,post,battery,seconds,fps,latency_ms,latency_p95_ms,cpu_pct,npu_busy_pct,pkg_w,core_w,gfx_w,psys_w,wait_ms,decode_ms,pre_ms,infer_ms,mask_ms,post_ms,send_ms,epp
+time,infer,post,battery,seconds,fps,latency_ms,latency_p95_ms,cpu_pct,npu_busy_pct,pkg_w,core_w,gfx_w,psys_w,wait_ms,decode_ms,pre_ms,infer_ms,mask_ms,post_ms,send_ms,epp,blur,edges
 2026-10-22T17:52:10,idle,,Discharging,60.0,,,,,,2.55,0.53,0.0,2.06,,,,,,,
 2026-10-22T17:53:11,none,cpu,Discharging,60.0,28.1,102.3,194.6,67,0,4.97,2.75,0.0,7.23,11.57,22.39,0.0,0.0,0.0,0.0,1.59
 2026-10-22T17:54:26,idle,,Discharging,60.0,,,,,,2.95,0.77,0.0,2.56,,,,,,,
@@ -104,3 +104,42 @@ time,infer,post,battery,seconds,fps,latency_ms,latency_p95_ms,cpu_pct,npu_busy_p
 2026-10-22T21:50:29,idle,,Charging,60.0,,,,,,1.99,0.34,0.0,2.02,,,,,,,,balance_power
 2026-10-22T21:51:31,NPU,cpu,Charging,60.0,29.6,52.6,67.2,55,38,7.19,3.2,0.0,12.27,15.87,8.6,0.28,0.6,0.15,7.3,0.94,balance_power
 2026-10-22T21:52:46,idle,,Charging,60.0,,,,,,1.93,0.3,0.0,1.75,,,,,,,,balance_power
+2026-10-22T23:44:10,NPU,cpu,Not charging,60.0,29.8,52.7,73.3,57,38,8.26,3.95,0.0,12.98,14.95,9.43,0.3,0.59,0.21,7.21,0.87,balance_power,standard,medium
+2026-10-22T23:45:12,NPU,cpu,Not charging,60.0,29.7,53.8,74.8,58,38,8.14,3.88,0.0,12.38,14.84,9.61,0.32,0.6,0.21,7.27,0.85,balance_power,standard,medium
+2026-10-22T23:46:14,NPU,cpu,Not charging,60.0,29.8,52.8,75.2,58,38,8.22,3.93,0.0,12.34,14.86,9.35,0.33,0.6,0.15,7.37,0.92,balance_power,standard,low
+2026-10-22T23:47:16,NPU,cpu,Not charging,60.0,29.5,58.6,89.9,64,38,8.87,4.4,0.0,13.29,12.66,8.34,0.29,0.58,4.69,6.49,0.79,balance_power,standard,high
+2026-10-22T23:48:18,NPU,cpu,Not charging,60.0,29.8,53.5,76.9,58,38,8.24,4.02,0.0,12.35,14.48,8.1,0.35,0.66,0.23,8.87,0.88,balance_power,portrait,medium
+2026-10-22T23:49:20,NPU,cpu,Not charging,60.0,29.8,51.9,69.4,56,38,7.93,3.69,0.0,11.84,15.18,7.76,0.34,0.66,0.24,8.37,1.0,balance_power,standard,medium
+2026-10-22T23:50:22,NPU,cpu,Not charging,60.0,29.8,51.4,68.2,55,38,7.84,3.59,0.0,11.73,15.55,7.51,0.36,0.65,0.24,8.31,0.96,balance_power,standard,medium
+2026-10-22T23:51:24,NPU,cpu,Not charging,60.0,29.8,50.5,54.9,54,38,8.09,3.79,0.0,12.11,16.15,6.93,0.37,0.61,0.16,8.44,0.9,balance_power,standard,low
+2026-10-22T23:52:27,NPU,cpu,Not charging,60.0,29.5,58.8,94.1,63,38,8.77,4.33,0.0,13.16,13.11,7.46,0.3,0.62,5.01,6.58,0.81,balance_power,standard,high
+2026-10-22T23:53:29,NPU,cpu,Not charging,60.0,29.8,53.1,76.3,58,38,7.94,3.73,0.0,11.95,14.53,7.77,0.35,0.67,0.24,9.06,0.95,balance_power,portrait,medium
+2026-10-22T23:54:31,NPU,cpu,Not charging,60.0,29.8,50.0,53.6,53,38,7.8,3.6,0.0,11.71,16.6,6.52,0.36,0.59,0.23,8.51,0.76,balance_power,standard,medium
+2026-10-22T23:55:33,NPU,cpu,Not charging,60.0,29.8,50.9,61.5,55,38,7.93,3.68,0.0,11.88,15.82,6.99,0.36,0.63,0.24,8.61,0.92,balance_power,standard,medium
+2026-10-22T23:56:35,NPU,cpu,Not charging,60.0,29.8,51.6,69.1,56,38,7.91,3.65,0.0,11.89,15.4,7.59,0.36,0.67,0.17,8.46,0.92,balance_power,standard,low
+2026-10-22T23:57:37,NPU,cpu,Not charging,60.0,29.0,63.8,116.5,64,38,8.62,4.28,0.0,12.94,12.85,8.32,0.29,0.61,5.02,6.56,0.85,balance_power,standard,high
+2026-10-22T23:58:39,NPU,cpu,Not charging,60.0,29.7,54.5,78.9,59,38,7.84,3.68,0.0,11.78,14.34,7.78,0.34,0.67,0.25,9.3,0.98,balance_power,portrait,medium
+2026-10-22T23:59:55,idle,,Not charging,60.0,,,,,,3.43,1.03,0.0,3.63,,,,,,,,balance_power,,
+2026-10-23T00:00:57,NPU,cpu,Not charging,60.0,29.3,60.4,90.4,62,38,7.99,3.79,0.0,11.8,13.57,10.53,0.31,0.71,0.17,7.82,1.02,balance_power
+2026-10-23T00:02:12,idle,,Not charging,60.0,,,,,,3.36,0.94,0.0,3.53,,,,,,,,balance_power,,
+2026-10-23T00:03:14,NPU,cpu,Not charging,60.0,29.8,50.9,55.4,55,38,8.35,3.96,0.0,12.14,15.77,8.09,0.35,0.59,0.22,7.77,0.78,balance_power,standard,medium
+2026-10-23T00:04:29,idle,,Not charging,60.0,,,,,,3.03,0.75,0.0,2.9,,,,,,,,balance_power,,
+2026-10-23T00:05:44,idle,,Not charging,60.0,,,,,,3.06,0.76,0.0,2.99,,,,,,,,balance_power,,
+2026-10-23T00:06:46,NPU,cpu,Not charging,60.0,29.8,50.7,66.2,54,38,7.95,3.73,0.0,11.62,16.02,6.46,0.35,0.63,0.18,8.89,1.05,balance_power
+2026-10-23T00:08:02,idle,,Not charging,60.0,,,,,,3.21,0.86,0.0,3.14,,,,,,,,balance_power,,
+2026-10-23T00:09:04,NPU,cpu,Not charging,60.0,29.8,51.0,66.6,55,38,7.97,3.71,0.0,11.63,15.71,7.22,0.36,0.64,0.24,8.48,0.92,balance_power,standard,medium
+2026-10-23T00:10:19,idle,,Not charging,60.0,,,,,,2.96,0.74,0.0,2.91,,,,,,,,balance_power,,
+2026-10-23T00:11:34,idle,,Not charging,60.0,,,,,,2.98,0.74,0.0,3.11,,,,,,,,balance_power,,
+2026-10-23T00:12:36,NPU,cpu,Not charging,60.0,29.8,51.0,69.5,55,38,7.76,3.59,0.0,11.67,15.85,6.92,0.34,0.63,0.18,8.67,0.99,balance_power
+2026-10-23T00:13:51,idle,,Not charging,60.0,,,,,,3.04,0.76,0.0,3.03,,,,,,,,balance_power,,
+2026-10-23T00:14:53,NPU,cpu,Not charging,60.0,29.7,52.4,71.3,56,38,8.17,3.9,0.0,11.9,15.29,8.08,0.35,0.63,0.24,8.12,0.9,balance_power,standard,medium
+2026-10-23T00:16:08,idle,,Not charging,60.0,,,,,,3.07,0.75,0.0,2.92,,,,,,,,balance_power,,
+2026-10-23T10:43:32,NPU,cpu,Not charging,60.0,29.8,53.4,77.4,58,38,10.17,5.8,0.0,15.57,14.57,9.52,0.31,0.64,0.22,7.43,0.89,balance_power,standard,medium
+2026-10-23T10:44:34,NPU,cpu,Not charging,60.0,29.2,59.7,96.9,61,38,7.88,3.93,0.0,12.0,13.85,9.04,0.27,0.61,2.77,6.84,0.86,balance_power,standard,high
+2026-10-23T10:45:36,NPU,cpu,Not charging,60.0,29.8,52.2,74.6,56,38,7.92,3.67,0.0,11.92,15.25,9.19,0.3,0.61,0.22,7.04,0.98,balance_power,portrait,medium
+2026-10-23T10:46:38,NPU,cpu,Not charging,60.0,29.8,50.9,55.2,55,38,7.86,3.67,0.0,12.0,15.94,8.32,0.31,0.57,0.2,7.37,0.86,balance_power,standard,medium
+2026-10-23T10:47:40,NPU,cpu,Not charging,60.0,29.8,52.9,72.5,58,38,7.91,4.0,0.0,12.13,14.75,7.94,0.27,0.56,2.49,6.69,0.87,balance_power,standard,high
+2026-10-23T10:48:42,NPU,cpu,Not charging,60.0,29.8,50.5,54.3,54,37,7.9,3.68,0.0,11.97,16.09,8.32,0.32,0.56,0.21,7.22,0.86,balance_power,portrait,medium
+2026-10-23T10:49:44,NPU,cpu,Not charging,60.0,29.8,51.5,58.7,55,38,7.76,3.62,0.0,11.78,15.68,8.58,0.3,0.58,0.21,7.33,0.9,balance_power,standard,medium
+2026-10-23T10:50:46,NPU,cpu,Not charging,60.0,29.6,54.6,77.4,58,38,7.74,3.86,0.0,11.89,14.84,8.05,0.26,0.56,2.48,6.64,0.94,balance_power,standard,high
+2026-10-23T10:51:48,NPU,cpu,Not charging,60.0,29.8,51.9,74.7,56,38,7.5,3.35,0.0,11.5,15.56,9.05,0.28,0.62,0.21,6.88,0.96,balance_power,portrait,medium
