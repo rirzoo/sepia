@@ -326,4 +326,4 @@ Oct 24, 15:47 to 15:53 IST: real camera, nothing reading Sepia Cam, `sepiad --be
 
 The smoothing is timed in the infer stage, after the wait for the mask, and steady adds 0.12 ms there. Latency and package power are the same within the spread; fixed's higher mean comes from its first run, at 8.15 W. Every p95 stayed under 60 ms.
 
-**Decision:** steady becomes the default smoothing, and `--smooth fixed` stays available. It hasn't been measured in a call.
+**Decision:** steady becomes the default smoothing, and `--smooth fixed` stays available. It hasn't been measured in a call. The change is commit 7fa48b6.
