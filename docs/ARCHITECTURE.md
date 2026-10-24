@@ -102,7 +102,13 @@ Framing needs only a person box, which comes from the mask: threshold it and tak
 
 ### Latency and lip sync
 
-sepiad measures each frame from the camera driver's buffer timestamp (CLOCK_MONOTONIC) to the moment it is sent; `--bench` reports the average and 95th percentile. The driver timestamp makes the number include time the frame spent queued before sepiad read it. The camera's own delay is about one frame period (33 ms): it needs that long to send a frame after the timestamp, and at 720p it can't go faster than 30 fps. Target: the whole number, camera delay included, stays under 66 ms (2 frames) at the 95th percentile and near 50 ms on average. For true camera-to-screen latency, film a running stopwatch through Meet's self-view once.
+sepiad measures each frame from the camera driver's buffer timestamp (CLOCK_MONOTONIC) to the moment it is sent; `--bench` reports the average and 95th percentile. The frame reaches sepiad about one frame period (33 ms) after that timestamp, because the camera needs that long to send it ([BENCHMARK.md](BENCHMARK.md#where-the-latency-goes-oct-24-2026)). Chrome waits just as long when it reads the real camera directly.
+
+A WebRTC receiver keeps lip sync by holding back whichever stream is early, going by the capture time stamped on each frame. Chrome on Linux stamps a camera frame with the time Chrome receives it and ignores the driver's timestamp, which its source calls inaccurate on many drivers (`media/capture/video/linux/v4l2_capture_delegate.cc`, checked in Chrome 156.0.8078.47 on Oct 24, 2026). So any delay before Chrome gets a frame is never corrected, and the picture reaches the other side that much behind the sound. Passing the camera's timestamps through v4l2loopback wouldn't help, because Chrome doesn't read them. Meet's own blur runs inside Chrome after the frame is stamped, so receivers can make up for its delay.
+
+On average, people notice the sound leading the picture at about 45 ms and accept it up to about 90 ms (ITU-R BT.1359, [summary](https://en.wikipedia.org/wiki/Audio-to-video_synchronization)). Those limits are for the whole path, including the delay Chrome already leaves uncorrected with the real camera.
+
+**Target:** sepiad's added delay, the measured latency minus one frame period (33.3 ms), is at most 20 ms on average and one frame (33 ms) at the 95th percentile, with Meet reading Sepia Cam. In measured latency that is at most 53.3 ms on average and 66.7 ms at the 95th percentile. A clap test in a Meet call, once with the real camera and once with Sepia Cam, will measure the offset that actually reaches the other side.
 
 ### Camera node selection (Level 2)
 

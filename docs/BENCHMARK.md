@@ -29,6 +29,7 @@ sepiad --infer NPU --post cpu --bench 60   # run 60 s, append one row to bench.c
 | NPU utilisation | Change in `/sys/class/accel/accel0/device/npu_busy_time_us` over the run | No |
 | Time per stage | `time.perf_counter()` around each step | No |
 | fps and latency (mean, p95) | Capture and send timestamps | No |
+| sepiad's added delay (mean, p95) | Latency minus one frame period (33.3 ms), the camera's own transfer ([ARCHITECTURE.md](ARCHITECTURE.md#latency-and-lip-sync)) | No |
 | sepiad CPU % | `/proc/self/stat` | No |
 
 The NPU-utilisation counter also proves the NPU is doing the inference when it is selected.
@@ -327,3 +328,15 @@ Oct 24, 15:47 to 15:53 IST: real camera, nothing reading Sepia Cam, `sepiad --be
 The smoothing is timed in the infer stage, after the wait for the mask, and steady adds 0.12 ms there. Latency and package power are the same within the spread; fixed's higher mean comes from its first run, at 8.15 W. Every p95 stayed under 60 ms.
 
 **Decision:** steady becomes the default smoothing, and `--smooth fixed` stays available. It hasn't been measured in a call. The change is commit 7fa48b6.
+
+### Where the latency goes (Oct 24, 2026)
+
+No new runs. Each of the 12 sepiad rows of Oct 24, from the [Meet call](#pp-humanseg-against-the-multiclass-model-in-a-meet-call-plugged-in-oct-24-2026) and the [steady smoothing runs](#steady-mask-smoothing-plugged-in-oct-24-2026), splits its latency into two parts. The first is the time from the driver's timestamp until sepiad dequeues the frame, which is the latency minus the stage times after the read. The second is sepiad's own processing, decode to send. Ranges of the per-run means:
+
+| Rows | Latency | Timestamp to dequeue | Decode to send | p95 minus 33.3 ms |
+| --- | --- | --- | --- | --- |
+| Camera only, multiclass (6 runs) | 51.1 to 51.6 ms | 33.2 to 33.5 ms | 17.7 to 18.2 ms | 21.8 to 25.7 ms |
+| Meet call, multiclass (3 runs) | 51.8 to 53.3 ms | 33.4 to 34.1 ms | 18.4 to 19.2 ms | 28.4 to 41.2 ms |
+| Meet call, PP-HumanSeg (3 runs) | 56.0 to 56.9 ms | 34.0 to 34.4 ms | 22.0 to 22.5 ms | 42.8 to 45.6 ms |
+
+In every run the frame reached sepiad about one frame period after its driver timestamp, so on average no frame waited in the queue. That time is the camera sending the frame, and Chrome waits just as long when it reads the real camera. Sepia's own share is the rest: 17.7 to 19.2 ms on average with the multiclass model and 22.0 to 22.5 ms with PP-HumanSeg. The last column subtracts one frame period from the p95, which assumes the camera's part stays at its mean; its run means varied by 1.2 ms.

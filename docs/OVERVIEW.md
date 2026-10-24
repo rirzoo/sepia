@@ -20,7 +20,7 @@ One always-available virtual camera with background blur, framing and lighting t
 
 - Runs on Fedora, without a full OBS window open all day
 - **Uses less power than Meet's own blur.** This is the bar the project must clear. If sepiad costs more, it still wins on WhatsApp Web and on framing/lighting, but the core claim fails.
-- 30 fps at 720p, adding at most 2 frames (66 ms) of latency, so video stays in sync with audio
+- 30 fps at 720p, adding at most 20 ms of delay on average and one frame (33 ms) at the 95th percentile, so the picture doesn't fall noticeably behind the sound ([ARCHITECTURE.md](ARCHITECTURE.md#latency-and-lip-sync))
 
 ## Proposed solution
 
