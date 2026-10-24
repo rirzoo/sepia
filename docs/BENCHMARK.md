@@ -261,3 +261,69 @@ The model and the blur add 2.95 W on top of the passthrough: 1.17 W on the CPU c
 The passthrough's p95 was 118.7, 186.7 and 141.1 ms. With less work, the CPU ran at lower clocks on `balance_power`: decode took 13.1 to 13.3 ms against 8.3 to 8.7 ms with the model running. With the background-only blur, the in-call p95 was 72.6 to 74.8 ms, under the 78 to 84 ms of the old blur but still over 66 ms.
 
 **Decision:** Sepia Cam's extra watt in a call comes from the model and the blur, so I420 output and iGPU decode are dropped as power levers. The levers left are running the model on fewer frames and getting the 250 KB selfie model to load (see [ROADMAP.md](ROADMAP.md#open-questions)).
+
+### Smaller models and crisp edges, plugged in (Oct 23, 2026)
+
+Plugged in, with the CPU on the `balanced-battery` profile (`epp` is `balance_power` in every row). OpenVINO 2025.1, `intel-npu-driver` 1.16.0.
+
+**Model-only timing,** offline, 30 inferences per device after one warm-up. The multiclass model and meet_1655 ran on a random 1280×720 frame through `scripts/preview_models.py`, so their times include the resize, and for the multiclass model a softmax in NumPy; they are higher than sepiad's built-in path. PP-HumanSeg ran on a random −1 to 1 input with no resize. meet_1655 and ML Kit's 256×256 selfie model load once their custom operation is rewritten ([ARCHITECTURE.md](ARCHITECTURE.md#the-multiclass-model-with-pp-humanseg-as-the-fallback)). The ML Kit model has the same 106,401 weights as meet_1655 and wasn't timed.
+
+| Model | Input | File | Weights | NPU | iGPU | CPU |
+| --- | --- | --- | --- | --- | --- | --- |
+| MediaPipe Selfie Multiclass | 256×256 | 16 MB | | 26.28 ms | 15.40 ms | 67.05 ms |
+| meet_1655 (MediaPipe landscape) | 256×144 | 250 KB | 106,401 | 1.88 ms | 1.58 ms | 3.03 ms |
+| PP-HumanSeg v2 Lite, portrait | 256×144 | 1.9 MB (OpenVINO IR) | 937,025 | 4.52 ms | 1.29 ms | 7.73 ms |
+
+**Live previews,** judged by the user. Next to the multiclass model in `scripts/preview_models.py`, meet_1655 outlined the face well in good light but lost the hand, and ML Kit's model did better than meet_1655 in low light. PP-HumanSeg held the hand and stayed steady in both good and low light, with a looser outline. The multiclass model beat all three on outline and stability. With sepiad's blur, PP-HumanSeg's result looked much closer to Meet's, but its edge around the hand was soft. With the fingers spread, it blurred some fingers or filled in the gaps between them, and high edges didn't change that.
+
+A new edge level, `crisp`, enlarges the mask to 640×360 before steepening its edge four times around 0.5, so the outline stays sharp at full size. On PP-HumanSeg it looked like a fixed, rough outline following the person around, though it handled the hand a little better. On the multiclass model it showed no jitter and looked better than medium, in some ways better than Meet's own blur.
+
+**Latency-only runs,** Oct 23, 15:00 to 15:10 IST: real camera, nothing reading Sepia Cam, `sepiad --bench 60` 3 times per variant, alternating, Standard blur, inference on the NPU, no idle phases. Package power is raw. sepiad CPU is sepiad's own (100% is one core).
+
+| Variant | fps | Latency mean | p95 per run | Package | CPU cores | Mask and edge | Blur and blend | NPU busy | sepiad CPU |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| multiclass, crisp | 29.7 | 52.0 ms | 54.7, 89.0, 54.1 ms | 7.16 ± 0.10 W | 3.29 W | 0.60 ms | 7.73 ms | 37% | 55% |
+| multiclass, medium | 29.3 | 55.6 ms | 88.0, 92.2, 54.1 ms | 7.11 ± 0.07 W | 3.24 W | 0.22 ms | 8.11 ms | 38% | 56% |
+| PP-HumanSeg, crisp | 29.6 | 56.6 ms | 76.9, 78.7, 87.3 ms | 6.28 ± 0.03 W | 3.72 W | 0.53 ms | 10.45 ms | 20% | 63% |
+
+Crisp costs the same as medium. Package power is within the spread and the mask step takes 0.4 ms more. Both multiclass variants had runs with a p95 near 90 ms and runs at 54 ms, so the p95 doesn't separate them.
+
+PP-HumanSeg used 0.88 W less package power than the multiclass model with crisp edges, and kept the NPU busy 20% of the time against 37%. Its CPU cores drew 0.43 W more, and blur and blend took 10.45 ms against 7.73 ms in every run. Offline, with inference running alongside the blur as in the loop, the blur took about the same time with either model (10.84 and 11.14 ms), and inference used 0.13 ms of CPU per frame, so the cause isn't known yet. Its p95 was over 66 ms in all three runs.
+
+**Decision:** crisp becomes the default edge level, and the multiclass model stays the default model. PP-HumanSeg v2 Lite is the fallback, `--model humanseg`: it fits in a frame on the CPU, and it is the lower-power choice, although its saving in a call isn't measured yet. meet_1655 and the ML Kit model aren't used. These rows have the new `model` column. The changes are commit b30639c.
+
+### PP-HumanSeg against the multiclass model in a Meet call, plugged in (Oct 24, 2026)
+
+Oct 24, 15:06 to 15:28 IST: `scripts/bench_meet.py 3 60 meet-blur meet meet+NPU:cpu meet+humanseg:cpu`, 3 runs, in a Meet call in Chrome with the microphone on in every phase and no other participant. Plugged in, with the CPU on the `balanced-battery` profile (`epp` is `balance_power` in every row). OpenVINO 2025.1, `intel-npu-driver` 1.16.0, sepiad at commit 9f31400: Standard blur, crisp edges, inference on the NPU, blur and blend on the CPU. The PP-HumanSeg phase runs sepiad with `--model humanseg`. "Rest" is package minus CPU cores minus iGPU, where the NPU's power is counted. Mean ± standard deviation:
+
+| Phase | Package | Over Meet, no effects | CPU cores | iGPU | Rest | Laptop CPU | fps | Latency mean / p95 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Meet, no effects | 8.29 ± 0.04 W | | 5.26 W | 0.17 W | 2.87 W | 110% | | |
+| Meet's blur | 10.54 ± 0.02 W | +2.25 ± 0.06 W | 5.65 W | 1.04 W | 3.86 W | 149% | | |
+| Sepia Cam, multiclass | 11.49 ± 0.08 W | +3.20 ± 0.07 W | 6.56 W | 0.17 W | 4.76 W | 154% | 29.8 | 52.5 / 69.9 ms |
+| Sepia Cam, PP-HumanSeg | 10.38 ± 0.07 W | +2.09 ± 0.10 W | 6.80 W | 0.18 W | 3.40 W | 170% | 29.7 | 56.4 / 77.5 ms |
+
+Run by run, PP-HumanSeg used 1.11 ± 0.07 W less package power than the multiclass model and 0.16 ± 0.08 W less than Meet's own blur, so in a call it costs about what Meet's blur does. The whole saving is in the rest of the package, where the NPU sits, which drew 1.36 W less. The CPU cores drew 0.24 W more, laptop CPU went from 154% to 170%, and the NPU was busy 20% of the time against 38%.
+
+As in the latency-only runs, blur and blend were slower with PP-HumanSeg, 11.23 ms against 8.10 ms in every run, and the cause still isn't known. Its p95 was 77.5, 76.1 and 78.9 ms. The multiclass model's was 61.7, 74.5 and 73.4 ms, over 66 ms in two runs of three.
+
+Meet's blur looked steadier than Sepia Cam's to the user. Once it settled, its outline stayed the same until they moved, and then it followed the movement well.
+
+The [Meet comparison](#meet-comparison-and-meet-style-blur-plugged-in-oct-23-2026) of Oct 23 had a second participant in the call, a phone; the [passthrough session](#sepia-cam-as-a-passthrough-in-a-meet-call-plugged-in-oct-23-2026) and this one had none. Meet with no effects drew 8.93, 8.54 and 8.29 W in the three sessions. So the earlier comparison of Meet's blur (+2.36 W) with Sepia Cam's background-only blur (+3.25 W) mixed two setups; this entry measures all of them in one.
+
+**Decision:** the multiclass model stays the default for its outline, and `--model humanseg` is the low-power option, at about the cost of Meet's blur. Next is a steadier mask that holds still while the person does, as Meet's does.
+
+### Steady mask smoothing, plugged in (Oct 24, 2026)
+
+Oct 24, 15:47 to 15:53 IST: real camera, nothing reading Sepia Cam, `sepiad --bench 60` 3 times per variant, alternating. Multiclass model on the NPU, Standard blur, crisp edges. Plugged in, with the CPU on the `balanced-battery` profile (`epp` is `balance_power` in every row). OpenVINO 2025.1, `intel-npu-driver` 1.16.0. Package power is raw, and sepiad CPU is sepiad's own (100% is one core).
+
+`--smooth steady` replaces the fixed average of 60% new mask and 40% previous. Each pixel takes in a share of the new mask in proportion to how much it changed: 10% for a change up to 0.03, which is model noise while the person sits still, and all of it from 0.3 up, when they move. It follows what the user saw of Meet's blur in the [Meet call](#pp-humanseg-against-the-multiclass-model-in-a-meet-call-plugged-in-oct-24-2026): an outline that holds still until the person moves. In a live preview with both models, the user found steady very good.
+
+| Smoothing | fps | Latency mean | p95 per run | Package | CPU cores | Infer stage | Blur and blend | sepiad CPU |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| fixed | 29.8 | 51.3 ms | 55.7, 59.0, 55.1 ms | 7.94 ± 0.18 W | 3.83 W | 0.54 ms | 7.37 ms | 55% |
+| steady | 29.8 | 51.4 ms | 56.0, 56.7, 55.5 ms | 7.83 ± 0.05 W | 3.75 W | 0.67 ms | 7.38 ms | 56% |
+
+The smoothing is timed in the infer stage, after the wait for the mask, and steady adds 0.12 ms there. Latency and package power are the same within the spread; fixed's higher mean comes from its first run, at 8.15 W. Every p95 stayed under 60 ms.
+
+**Decision:** steady becomes the default smoothing, and `--smooth fixed` stays available. It hasn't been measured in a call. The change is commit 7fa48b6.

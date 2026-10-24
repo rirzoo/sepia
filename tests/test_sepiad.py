@@ -3,15 +3,21 @@ import cv2
 import numpy as np
 import openvino as ov
 
-from sepiacam.sepiad import BLURS, H, MODEL, W, blur_background, build_model, edge_mask
+from sepiacam.sepiad import BLURS, H, MODEL, MODELS, W, blur_background, build_model, edge_mask, smooth
 
 # The built-in pre- and post-processing must match doing it by hand: RGB, -1..1, softmax, 1 - P(background).
 core = ov.Core()
 img = np.random.default_rng(0).integers(0, 256, (1, 256, 256, 3), np.uint8)
-logits = core.compile_model(str(MODEL), "CPU")(cv2.cvtColor(img[0], cv2.COLOR_BGR2RGB)[None] / 127.5 - 1)[0][0]
+logits = core.compile_model(str(MODELS / MODEL["multiclass"][0]), "CPU")(cv2.cvtColor(img[0], cv2.COLOR_BGR2RGB)[None] / 127.5 - 1)[0][0]
 e = np.exp(logits - logits.max(-1, keepdims=True))
 mask = core.compile_model(build_model(core), "CPU")(img)[0][0]
 assert mask.shape == (256, 256) and np.abs(mask - (1 - e[..., 0] / e.sum(-1))).max() < 1e-4, "built-in processing"
+# humanseg: channels first, RGB, -1..1, person is softmax channel 1
+img2 = np.random.default_rng(1).integers(0, 256, (1, 144, 256, 3), np.uint8)
+probs = core.compile_model(str(MODELS / MODEL["humanseg"][0]), "CPU")(
+    (cv2.cvtColor(img2[0], cv2.COLOR_BGR2RGB) / 127.5 - 1).transpose(2, 0, 1)[None])[0][0]
+person = core.compile_model(build_model(core, "humanseg"), "CPU")(img2)[0][0]
+assert person.shape == (144, 256) and np.abs(person - probs[1]).max() < 1e-4, "humanseg built-in processing"
 
 frame = np.random.default_rng(0).integers(0, 256, (H, W, 3), np.uint8)
 assert np.array_equal(blur_background(frame, np.ones((256, 256), np.float32)), frame), "person everywhere: frame unchanged"
@@ -25,21 +31,29 @@ for blur in BLURS:
 assert not np.array_equal(*(blur_background(frame, np.zeros((256, 256), np.float32), b) for b in BLURS)), "modes differ"
 
 # A dark person on the left of a bright background, and a coarse mask of them: higher edge levels give a narrower
-# transition from person to background, and high puts it at the frame's own edge (x = 640).
+# transition from person to background (crisp between medium and high), and high puts it at the frame's own edge
+# (x = 640).
 scene = np.full((H, W, 3), 200, np.uint8)
 scene[:, :640] = 60
 coarse = np.zeros((256, 256), np.float32)
 coarse[:, :128] = 1
 coarse = cv2.GaussianBlur(coarse, (15, 15), 0)
 width = {}
-for edges in ("low", "medium", "high"):
+for edges in ("low", "medium", "high", "crisp"):
     row = cv2.resize(edge_mask(coarse, scene, edges), (W, H))[H // 2]
     assert -0.05 < row.min() and row.max() < 1.05, f"{edges}: weights in range"
     width[edges] = int(((row > 0.1) & (row < 0.9)).sum())
-assert width["low"] > width["medium"] > width["high"], f"sharper edges are narrower: {width}"
+assert width["low"] > width["medium"] > width["crisp"] > width["high"], f"sharper edges are narrower: {width}"
 assert abs(int(np.argmax(cv2.resize(edge_mask(coarse, scene, "high"), (W, H))[H // 2] < 0.5)) - 640) <= 3, "high: at x = 640"
 step = np.zeros((256, 256), np.float32)
 step[:, :128] = 1
 for blur in BLURS:  # the dark person must not bleed into the bright background next to them
     assert blur_background(scene, cv2.GaussianBlur(step, (9, 9), 0), blur)[H // 2, 650:700].min() >= 185, f"{blur}: no halo"
+
+# steady smoothing: model noise around a still person moves the mask by 10%; a hand moving in is followed at once.
+prev = np.full((4, 4), 0.5, np.float32)
+assert np.allclose(smooth(prev + 0.02, prev, "steady"), 0.502), "steady: noise damped"
+assert np.allclose(smooth(prev + 0.15, prev, "steady"), 0.575), "steady: half of a 0.15 change"
+assert np.allclose(smooth(np.ones((4, 4), np.float32), prev, "steady"), 1), "steady: movement followed"
+assert np.allclose(smooth(prev + 0.05, prev, "fixed"), 0.53), "fixed: 60% of the new mask"
 print("ok")

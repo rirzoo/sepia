@@ -1,7 +1,7 @@
 """sepiad: read the webcam, blur the background, and write the result to the Sepia Cam virtual camera.
 
-Run: sepiad [--blur standard|portrait] [--edges low|medium|high] [--infer NPU|GPU|CPU|none] [--post cpu|gpu]
-           [--bench SECONDS]
+Run: sepiad [--model multiclass|humanseg] [--blur standard|portrait] [--edges low|medium|crisp|high]
+           [--smooth steady|fixed] [--infer NPU|GPU|CPU|none] [--post cpu|gpu] [--bench SECONDS]
 
 --bench runs for SECONDS after a short warm-up, prints the time per stage, fps, latency, CPU use and
 power, and appends one row to bench.csv in the current directory (docs/BENCHMARK.md). The infer stage is
@@ -28,7 +28,11 @@ from openvino.preprocess import ColorFormat
 
 CAM = "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:5:1.0-video-index0"  # RGB camera; by-id points at the IR one
 VCAM = "/dev/video10"
-MODEL = Path(__file__).resolve().parent.parent / "models" / "selfie_multiclass_256x256.tflite"
+MODELS = Path(__file__).resolve().parent.parent / "models"
+# file in models/ and input size (w, h). humanseg is PaddleSeg's PP-HumanSeg v2 Lite portrait model,
+# converted to OpenVINO IR (docs/SETUP.md); it outputs background and person, multiclass six classes.
+MODEL = {"multiclass": ("selfie_multiclass_256x256.tflite", (256, 256)),
+         "humanseg": ("pp_humanseg_v2_lite/model.xml", (256, 144))}
 W, H, FPS = 1280, 720, 30
 RAPL = Path("/sys/class/powercap")
 DOMAINS = {"pkg": "intel-rapl:0", "core": "intel-rapl:0:0", "gfx": "intel-rapl:0:1", "psys": "intel-rapl:1"}
@@ -40,27 +44,46 @@ STAGES = ["wait", "decode", "pre", "infer", "mask", "post", "send"]
 BLURS = {"standard": (21, 21), "portrait": (5, 5)}  # Gaussian kernel on the 320x180 copy; portrait is the lighter blur
 
 
-def build_model(core):
+def build_model(core, model="multiclass"):
     """The segmentation model with its pre- and post-processing built in, so they run on the inference device.
 
-    In: (1, 256, 256, 3) BGR uint8. Out: (1, 256, 256) probability that each pixel is the person, 1 - P(background).
+    In: (1, h, w, 3) BGR uint8 at the model's input size. Out: (1, h, w) probability that each pixel is the person.
     Doing this on the CPU cost about 10 ms per frame on battery, and the device sent back all six classes.
     """
-    ppp = ov.preprocess.PrePostProcessor(core.read_model(MODEL))
+    ppp = ov.preprocess.PrePostProcessor(core.read_model(MODELS / MODEL[model][0]))
     ppp.input().tensor().set_element_type(ov.Type.u8).set_layout(ov.Layout("NHWC")).set_color_format(ColorFormat.BGR)
-    ppp.input().model().set_layout(ov.Layout("NHWC"))
-    # -1..1 input: much better than 0..1 in low light (docs/ARCHITECTURE.md)
+    ppp.input().model().set_layout(ov.Layout("NHWC" if model == "multiclass" else "NCHW"))
+    # -1..1 input: much better than 0..1 in low light for multiclass (docs/ARCHITECTURE.md); humanseg was trained on it
     ppp.input().preprocess().convert_element_type(ov.Type.f32).convert_color(ColorFormat.RGB).mean(127.5).scale(127.5)
-    ppp.output().postprocess().custom(
-        lambda logits: ops.subtract(np.float32(1), ops.gather(ops.softmax(logits, -1), np.int64(0), np.int64(3))).output(0))
+    if model == "multiclass":  # six-class logits; person = 1 - P(background)
+        ppp.output().postprocess().custom(lambda logits: ops.subtract(
+            np.float32(1), ops.gather(ops.softmax(logits, -1), np.int64(0), np.int64(3))).output(0))
+    else:  # softmax over background and person, channels first
+        ppp.output().postprocess().custom(lambda p: ops.gather(p, np.int64(1), np.int64(1)).output(0))
     return ppp.build()
 
 
-def edge_mask(mask, frame, edges):
-    """Blend weights from the 256x256 mask. low: feathered, cheapest. medium: a steeper edge. high: the edge follows
+def smooth(mask, prev, mode="steady"):
+    """Temporal smoothing of the mask. steady (the default, picked in a live preview as closer to Meet): each pixel
+    takes in a share of the new mask in proportion to how much it changed, 10% for changes up to 0.03 (model noise)
+    and all of it from 0.3 up, so the outline holds still while the person does and follows movement at once.
+    fixed: 60% of the new mask in every pixel, so the outline wobbles a little even when the person is still."""
+    if prev is None:
+        return mask.copy()
+    if mode == "fixed":
+        return 0.6 * mask + 0.4 * prev
+    d = mask - prev
+    return prev + np.clip(np.abs(d) / 0.3, 0.1, 1) * d
+
+
+def edge_mask(mask, frame, edges="crisp"):
+    """Blend weights from the model's mask. low: feathered, cheapest. medium: a steeper edge. crisp (the default): a
+    sharp edge at 640x360, chosen in a live preview over medium as closer to Meet's. high: the edge follows
     the frame's own edges at 640x360, through a guided filter computed at 320x180 (He and Sun, fast guided filter)."""
     if edges == "low":
         return cv2.GaussianBlur(mask, (7, 7), 0)
+    if edges == "crisp":  # enlarge first, then steepen: a sharp outline where the model puts it, as in Meet
+        return np.clip(cv2.resize(mask, (640, 360)) * 4 - 1.5, 0, 1)
     steep = np.clip(mask * 2 - 0.5, 0, 1)  # twice as steep around 0.5
     if edges == "medium":
         return cv2.GaussianBlur(steep, (3, 3), 0)
@@ -121,9 +144,11 @@ def report(args, start, end, frames, times, latency):
     row = {
         "time": datetime.now().isoformat(timespec="seconds"),
         "infer": args.infer,
+        "model": args.model,
         "post": args.post,
         "blur": args.blur,
         "edges": args.edges,
+        "smooth": args.smooth,
         "battery": (BAT / "status").read_text().strip(),
         "epp": EPP.read_text().strip(),
         "seconds": round(wall, 1),
@@ -147,7 +172,8 @@ def report(args, start, end, frames, times, latency):
 
 
 COLUMNS = ["time", "infer", "post", "battery", "seconds", "fps", "latency_ms", "latency_p95_ms", "cpu_pct",
-           "npu_busy_pct", *(f"{k}_w" for k in DOMAINS), *(f"{s}_ms" for s in STAGES), "epp", "blur", "edges"]
+           "npu_busy_pct", *(f"{k}_w" for k in DOMAINS), *(f"{s}_ms" for s in STAGES), "epp", "blur", "edges", "model",
+           "smooth"]
 
 
 def append_row(row, path="bench.csv"):
@@ -161,9 +187,13 @@ def append_row(row, path="bench.csv"):
 
 def main():
     p = argparse.ArgumentParser(description="Blur the webcam background and write it to the Sepia Cam virtual camera.")
+    p.add_argument("--model", default="multiclass", choices=list(MODEL),
+                   help="segmentation model (default multiclass); humanseg is about 3 times faster, with looser edges")
     p.add_argument("--blur", default="standard", choices=list(BLURS), help="standard, or portrait for a lighter blur")
-    p.add_argument("--edges", default="medium", choices=["low", "medium", "high"],
-                   help="edge sharpness (default medium); high follows hair most closely and adds about 4 ms of latency")
+    p.add_argument("--edges", default="crisp", choices=["low", "medium", "crisp", "high"],
+                   help="edge sharpness (default crisp); high follows hair most closely and adds about 4 ms of latency")
+    p.add_argument("--smooth", default="steady", choices=["fixed", "steady"],
+                   help="mask smoothing over time (default steady): holds the outline still while the person is still")
     p.add_argument("--infer", default="NPU", choices=["NPU", "GPU", "CPU", "none"],
                    help="device that runs the model (default NPU); none passes frames through, as a baseline")
     p.add_argument("--post", default="cpu", choices=["cpu", "gpu"], help="where blur and blend run; gpu uses OpenCL")
@@ -177,7 +207,7 @@ def main():
     if args.infer != "none":
         core = ov.Core()
         core.set_property({"CACHE_DIR": os.path.expanduser("~/.cache/sepia")})  # later NPU compiles are near-instant
-        req = core.compile_model(build_model(core), args.infer).create_infer_request()
+        req = core.compile_model(build_model(core, args.model), args.infer).create_infer_request()
     upload = cv2.UMat if args.post == "gpu" else np.asarray
 
     cam = open_camera()
@@ -187,7 +217,8 @@ def main():
     signal.signal(signal.SIGUSR1, lambda *_: restart.append(True))
     try:
         with pyvirtualcam.Camera(W, H, FPS, device=VCAM, fmt=pyvirtualcam.PixelFormat.BGR) as vcam:
-            print(f"sepiad: {CAM} -> {vcam.device}, blur {args.blur}, edges {args.edges}, infer {args.infer}, "
+            print(f"sepiad: {CAM} -> {vcam.device}, model {args.model}, blur {args.blur}, edges {args.edges}, "
+                  f"smooth {args.smooth}, infer {args.infer}, "
                   f"post {args.post}", flush=True)
             while True:
                 t = [time.perf_counter()]
@@ -200,7 +231,7 @@ def main():
                 t.append(time.perf_counter())
                 out = frame
                 if req:
-                    inp = cv2.resize(frame, (256, 256))
+                    inp = cv2.resize(frame, MODEL[args.model][1])
                     t.append(time.perf_counter())
                     # This frame is blended with the previous frame's mask, so no frame waits for the NPU: it
                     # segments this frame while the CPU blends, sends and decodes the next. The mask trails by a frame.
@@ -209,7 +240,7 @@ def main():
                     else:
                         req.infer([inp[None]])  # first frame: wait for its own mask
                     mask = req.get_output_tensor().data[0]
-                    prev = mask.copy() if prev is None else 0.6 * mask + 0.4 * prev  # temporal smoothing; tune vs edge lag
+                    prev = smooth(mask, prev, args.smooth)
                     req.start_async([inp[None]])
                     started = True
                     t.append(time.perf_counter())
