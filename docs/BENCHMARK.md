@@ -312,3 +312,18 @@ Meet's blur looked steadier than Sepia Cam's to the user. Once it settled, its o
 The [Meet comparison](#meet-comparison-and-meet-style-blur-plugged-in-oct-23-2026) of Oct 23 had a second participant in the call, a phone; the [passthrough session](#sepia-cam-as-a-passthrough-in-a-meet-call-plugged-in-oct-23-2026) and this one had none. Meet with no effects drew 8.93, 8.54 and 8.29 W in the three sessions. So the earlier comparison of Meet's blur (+2.36 W) with Sepia Cam's background-only blur (+3.25 W) mixed two setups; this entry measures all of them in one.
 
 **Decision:** the multiclass model stays the default for its outline, and `--model humanseg` is the low-power option, at about the cost of Meet's blur. Next is a steadier mask that holds still while the person does, as Meet's does.
+
+### Steady mask smoothing, plugged in (Oct 24, 2026)
+
+Oct 24, 15:47 to 15:53 IST: real camera, nothing reading Sepia Cam, `sepiad --bench 60` 3 times per variant, alternating. Multiclass model on the NPU, Standard blur, crisp edges. Plugged in, with the CPU on the `balanced-battery` profile (`epp` is `balance_power` in every row). OpenVINO 2025.1, `intel-npu-driver` 1.16.0. Package power is raw, and sepiad CPU is sepiad's own (100% is one core).
+
+`--smooth steady` replaces the fixed average of 60% new mask and 40% previous. Each pixel takes in a share of the new mask in proportion to how much it changed: 10% for a change up to 0.03, which is model noise while the person sits still, and all of it from 0.3 up, when they move. It follows what the user saw of Meet's blur in the [Meet call](#pp-humanseg-against-the-multiclass-model-in-a-meet-call-plugged-in-oct-24-2026): an outline that holds still until the person moves. In a live preview with both models, the user found steady very good.
+
+| Smoothing | fps | Latency mean | p95 per run | Package | CPU cores | Infer stage | Blur and blend | sepiad CPU |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| fixed | 29.8 | 51.3 ms | 55.7, 59.0, 55.1 ms | 7.94 ± 0.18 W | 3.83 W | 0.54 ms | 7.37 ms | 55% |
+| steady | 29.8 | 51.4 ms | 56.0, 56.7, 55.5 ms | 7.83 ± 0.05 W | 3.75 W | 0.67 ms | 7.38 ms | 56% |
+
+The smoothing is timed in the infer stage, after the wait for the mask, and steady adds 0.12 ms there. Latency and package power are the same within the spread; fixed's higher mean comes from its first run, at 8.15 W. Every p95 stayed under 60 ms.
+
+**Decision:** steady becomes the default smoothing, and `--smooth fixed` stays available. It hasn't been measured in a call.

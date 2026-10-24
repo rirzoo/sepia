@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 import openvino as ov
 
-from sepiacam.sepiad import BLURS, H, MODEL, MODELS, W, blur_background, build_model, edge_mask
+from sepiacam.sepiad import BLURS, H, MODEL, MODELS, W, blur_background, build_model, edge_mask, smooth
 
 # The built-in pre- and post-processing must match doing it by hand: RGB, -1..1, softmax, 1 - P(background).
 core = ov.Core()
@@ -49,4 +49,11 @@ step = np.zeros((256, 256), np.float32)
 step[:, :128] = 1
 for blur in BLURS:  # the dark person must not bleed into the bright background next to them
     assert blur_background(scene, cv2.GaussianBlur(step, (9, 9), 0), blur)[H // 2, 650:700].min() >= 185, f"{blur}: no halo"
+
+# steady smoothing: model noise around a still person moves the mask by 10%; a hand moving in is followed at once.
+prev = np.full((4, 4), 0.5, np.float32)
+assert np.allclose(smooth(prev + 0.02, prev, "steady"), 0.502), "steady: noise damped"
+assert np.allclose(smooth(prev + 0.15, prev, "steady"), 0.575), "steady: half of a 0.15 change"
+assert np.allclose(smooth(np.ones((4, 4), np.float32), prev, "steady"), 1), "steady: movement followed"
+assert np.allclose(smooth(prev + 0.05, prev, "fixed"), 0.53), "fixed: 60% of the new mask"
 print("ok")

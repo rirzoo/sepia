@@ -1,7 +1,7 @@
 """sepiad: read the webcam, blur the background, and write the result to the Sepia Cam virtual camera.
 
 Run: sepiad [--model multiclass|humanseg] [--blur standard|portrait] [--edges low|medium|crisp|high]
-           [--infer NPU|GPU|CPU|none] [--post cpu|gpu] [--bench SECONDS]
+           [--smooth steady|fixed] [--infer NPU|GPU|CPU|none] [--post cpu|gpu] [--bench SECONDS]
 
 --bench runs for SECONDS after a short warm-up, prints the time per stage, fps, latency, CPU use and
 power, and appends one row to bench.csv in the current directory (docs/BENCHMARK.md). The infer stage is
@@ -61,6 +61,19 @@ def build_model(core, model="multiclass"):
     else:  # softmax over background and person, channels first
         ppp.output().postprocess().custom(lambda p: ops.gather(p, np.int64(1), np.int64(1)).output(0))
     return ppp.build()
+
+
+def smooth(mask, prev, mode="steady"):
+    """Temporal smoothing of the mask. steady (the default, picked in a live preview as closer to Meet): each pixel
+    takes in a share of the new mask in proportion to how much it changed, 10% for changes up to 0.03 (model noise)
+    and all of it from 0.3 up, so the outline holds still while the person does and follows movement at once.
+    fixed: 60% of the new mask in every pixel, so the outline wobbles a little even when the person is still."""
+    if prev is None:
+        return mask.copy()
+    if mode == "fixed":
+        return 0.6 * mask + 0.4 * prev
+    d = mask - prev
+    return prev + np.clip(np.abs(d) / 0.3, 0.1, 1) * d
 
 
 def edge_mask(mask, frame, edges="crisp"):
@@ -135,6 +148,7 @@ def report(args, start, end, frames, times, latency):
         "post": args.post,
         "blur": args.blur,
         "edges": args.edges,
+        "smooth": args.smooth,
         "battery": (BAT / "status").read_text().strip(),
         "epp": EPP.read_text().strip(),
         "seconds": round(wall, 1),
@@ -158,7 +172,8 @@ def report(args, start, end, frames, times, latency):
 
 
 COLUMNS = ["time", "infer", "post", "battery", "seconds", "fps", "latency_ms", "latency_p95_ms", "cpu_pct",
-           "npu_busy_pct", *(f"{k}_w" for k in DOMAINS), *(f"{s}_ms" for s in STAGES), "epp", "blur", "edges", "model"]
+           "npu_busy_pct", *(f"{k}_w" for k in DOMAINS), *(f"{s}_ms" for s in STAGES), "epp", "blur", "edges", "model",
+           "smooth"]
 
 
 def append_row(row, path="bench.csv"):
@@ -177,6 +192,8 @@ def main():
     p.add_argument("--blur", default="standard", choices=list(BLURS), help="standard, or portrait for a lighter blur")
     p.add_argument("--edges", default="crisp", choices=["low", "medium", "crisp", "high"],
                    help="edge sharpness (default crisp); high follows hair most closely and adds about 4 ms of latency")
+    p.add_argument("--smooth", default="steady", choices=["fixed", "steady"],
+                   help="mask smoothing over time (default steady): holds the outline still while the person is still")
     p.add_argument("--infer", default="NPU", choices=["NPU", "GPU", "CPU", "none"],
                    help="device that runs the model (default NPU); none passes frames through, as a baseline")
     p.add_argument("--post", default="cpu", choices=["cpu", "gpu"], help="where blur and blend run; gpu uses OpenCL")
@@ -200,7 +217,8 @@ def main():
     signal.signal(signal.SIGUSR1, lambda *_: restart.append(True))
     try:
         with pyvirtualcam.Camera(W, H, FPS, device=VCAM, fmt=pyvirtualcam.PixelFormat.BGR) as vcam:
-            print(f"sepiad: {CAM} -> {vcam.device}, model {args.model}, blur {args.blur}, edges {args.edges}, infer {args.infer}, "
+            print(f"sepiad: {CAM} -> {vcam.device}, model {args.model}, blur {args.blur}, edges {args.edges}, "
+                  f"smooth {args.smooth}, infer {args.infer}, "
                   f"post {args.post}", flush=True)
             while True:
                 t = [time.perf_counter()]
@@ -222,7 +240,7 @@ def main():
                     else:
                         req.infer([inp[None]])  # first frame: wait for its own mask
                     mask = req.get_output_tensor().data[0]
-                    prev = mask.copy() if prev is None else 0.6 * mask + 0.4 * prev  # temporal smoothing; tune vs edge lag
+                    prev = smooth(mask, prev, args.smooth)
                     req.start_async([inp[None]])
                     started = True
                     t.append(time.perf_counter())
