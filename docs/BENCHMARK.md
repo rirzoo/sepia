@@ -291,3 +291,24 @@ Crisp costs the same as medium. Package power is within the spread and the mask 
 PP-HumanSeg used 0.88 W less package power than the multiclass model with crisp edges, and kept the NPU busy 20% of the time against 37%. Its CPU cores drew 0.43 W more, and blur and blend took 10.45 ms against 7.73 ms in every run. Offline, with inference running alongside the blur as in the loop, the blur took about the same time with either model (10.84 and 11.14 ms), and inference used 0.13 ms of CPU per frame, so the cause isn't known yet. Its p95 was over 66 ms in all three runs.
 
 **Decision:** crisp becomes the default edge level, and the multiclass model stays the default model. PP-HumanSeg v2 Lite is the fallback, `--model humanseg`: it fits in a frame on the CPU, and it is the lower-power choice, although its saving in a call isn't measured yet. meet_1655 and the ML Kit model aren't used. These rows have the new `model` column. The changes are commit b30639c.
+
+### PP-HumanSeg against the multiclass model in a Meet call, plugged in (Oct 24, 2026)
+
+Oct 24, 15:06 to 15:28 IST: `scripts/bench_meet.py 3 60 meet-blur meet meet+NPU:cpu meet+humanseg:cpu`, 3 runs, in a Meet call in Chrome with the microphone on in every phase and no other participant. Plugged in, with the CPU on the `balanced-battery` profile (`epp` is `balance_power` in every row). OpenVINO 2025.1, `intel-npu-driver` 1.16.0, sepiad at commit 9f31400: Standard blur, crisp edges, inference on the NPU, blur and blend on the CPU. The PP-HumanSeg phase runs sepiad with `--model humanseg`. "Rest" is package minus CPU cores minus iGPU, where the NPU's power is counted. Mean ± standard deviation:
+
+| Phase | Package | Over Meet, no effects | CPU cores | iGPU | Rest | Laptop CPU | fps | Latency mean / p95 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Meet, no effects | 8.29 ± 0.04 W | | 5.26 W | 0.17 W | 2.87 W | 110% | | |
+| Meet's blur | 10.54 ± 0.02 W | +2.25 ± 0.06 W | 5.65 W | 1.04 W | 3.86 W | 149% | | |
+| Sepia Cam, multiclass | 11.49 ± 0.08 W | +3.20 ± 0.07 W | 6.56 W | 0.17 W | 4.76 W | 154% | 29.8 | 52.5 / 69.9 ms |
+| Sepia Cam, PP-HumanSeg | 10.38 ± 0.07 W | +2.09 ± 0.10 W | 6.80 W | 0.18 W | 3.40 W | 170% | 29.7 | 56.4 / 77.5 ms |
+
+Run by run, PP-HumanSeg used 1.11 ± 0.07 W less package power than the multiclass model and 0.16 ± 0.08 W less than Meet's own blur, so in a call it costs about what Meet's blur does. The whole saving is in the rest of the package, where the NPU sits, which drew 1.36 W less. The CPU cores drew 0.24 W more, laptop CPU went from 154% to 170%, and the NPU was busy 20% of the time against 38%.
+
+As in the latency-only runs, blur and blend were slower with PP-HumanSeg, 11.23 ms against 8.10 ms in every run, and the cause still isn't known. Its p95 was 77.5, 76.1 and 78.9 ms. The multiclass model's was 61.7, 74.5 and 73.4 ms, over 66 ms in two runs of three.
+
+Meet's blur looked steadier than Sepia Cam's to the user. Once it settled, its outline stayed the same until they moved, and then it followed the movement well.
+
+The [Meet comparison](#meet-comparison-and-meet-style-blur-plugged-in-oct-23-2026) of Oct 23 had a second participant in the call, a phone; the [passthrough session](#sepia-cam-as-a-passthrough-in-a-meet-call-plugged-in-oct-23-2026) and this one had none. Meet with no effects drew 8.93, 8.54 and 8.29 W in the three sessions. So the earlier comparison of Meet's blur (+2.36 W) with Sepia Cam's background-only blur (+3.25 W) mixed two setups; this entry measures all of them in one.
+
+**Decision:** the multiclass model stays the default for its outline, and `--model humanseg` is the low-power option, at about the cost of Meet's blur. Next is a steadier mask that holds still while the person does, as Meet's does.

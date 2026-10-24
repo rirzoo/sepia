@@ -1,15 +1,16 @@
 """Meet comparison (docs/BENCHMARK.md): the laptop's power in a Meet call with Meet's own blur, with no effects, and
 with Meet reading Sepia Cam, blur and blend on the CPU and then on the iGPU, and with Meet reading Sepia Cam as a
-passthrough (sepiad --infer none: decode and send only), which shows what the pipeline costs without the model and blur.
+passthrough (sepiad --infer none: decode and send only), which shows what the pipeline costs without the model and blur,
+and with Meet reading Sepia Cam running the PP-HumanSeg fallback (sepiad --model humanseg, blur and blend on the CPU).
 
 Run it in a terminal while you're in a Meet call in Chrome. Before each phase it says how to set Meet and waits for
 Enter; after SETTLE seconds it measures for SECONDS, and you leave the laptop alone until the notification. Each
-phase appends one row to bench.csv (infer = meet-blur, meet, meet+NPU with post cpu or gpu, or meet+none). Power and
+phase appends one row to bench.csv (infer = meet-blur, meet, meet+NPU with post cpu or gpu, meet+none, or meet+humanseg). Power and
 cpu_pct are for the whole laptop (cpu_pct: 100 = one core); on Sepia Cam rows, fps, latency and stage times come from
 sepiad over the same window. Even runs go in reverse order. Plugged in, use the battery CPU profile (Method).
 
 Run: ~/.local/share/sepia/venv/bin/python scripts/bench_meet.py [runs, default 3] [seconds, default 60] [phase ...]
-Phases are named meet-blur, meet, meet+NPU:cpu, meet+NPU:gpu and meet+none; the default is all five.
+Phases are named meet-blur, meet, meet+NPU:cpu, meet+NPU:gpu, meet+none and meet+humanseg:cpu; the default is all six.
 """
 import csv
 import os
@@ -32,7 +33,8 @@ PHASES = [("meet-blur", "", [], "the real camera, Meet's background blur on"),  
           ("meet", "", [], "the real camera, Meet's effects off"),
           ("meet+NPU", "cpu", ["--post", "cpu"], "Sepia Cam, Meet's effects off"),
           ("meet+NPU", "gpu", ["--post", "gpu"], "Sepia Cam, Meet's effects off"),
-          ("meet+none", "", ["--infer", "none"], "Sepia Cam, Meet's effects off")]
+          ("meet+none", "", ["--infer", "none"], "Sepia Cam, Meet's effects off"),
+          ("meet+humanseg", "cpu", ["--model", "humanseg"], "Sepia Cam, Meet's effects off")]
 
 
 def busy():
@@ -88,7 +90,7 @@ def main():
     names = sys.argv[3:]
     phases = [p for p in PHASES if not names or ":".join(filter(None, p[:2])) in names]
     if names and len(phases) != len(names):
-        sys.exit(f"unknown phase in {names}; phases: meet-blur, meet, meet+NPU:cpu, meet+NPU:gpu, meet+none")
+        sys.exit(f"unknown phase in {names}; phases: {', '.join(':'.join(filter(None, p[:2])) for p in PHASES)}")
     rows = {(label, post): [] for label, post, *_ in phases}
     for run in range(1, runs + 1):
         for label, post, flags, setting in phases if run % 2 else phases[::-1]:
