@@ -1,0 +1,86 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Sepia A/V sync recorder</title>
+<!-- Records a camera and the mic in Chrome, as Meet would capture them, for scripts/av_offsets.py (docs/BENCHMARK.md).
+     Serve it on localhost (getUserMedia needs a secure context):
+     python3 -m http.server -b 127.0.0.1 8765 -d scripts, then open http://127.0.0.1:8765/av_sync.html -->
+<style>
+  body { font: 16px sans-serif; margin: 16px; background: #fff; color: #000; }
+  video { width: 640px; max-width: 100%; background: #000; }
+  p > * { margin-right: 8px; }
+</style>
+<p>
+  Camera <select id="cam"></select>
+  Mic <select id="mic"></select>
+  Seconds <input id="secs" type="number" value="30" min="5" style="width: 4em">
+</p>
+<p>
+  <button id="refresh">Refresh list</button>
+  <button id="start">Start camera</button>
+  <button id="stop">Stop camera</button>
+  <button id="record">Record</button>
+  <span id="status"></span>
+</p>
+<video id="view" autoplay muted playsinline></video>
+<script>
+const $ = id => document.getElementById(id);
+let stream = null;
+const say = text => $("status").textContent = text;
+
+async function list() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  for (const [sel, kind] of [[$("cam"), "videoinput"], [$("mic"), "audioinput"]]) {
+    const keep = sel.value;
+    sel.innerHTML = "";
+    for (const d of devices.filter(d => d.kind === kind)) sel.add(new Option(d.label || d.deviceId, d.deviceId));
+    if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+  }
+}
+
+function stop() {
+  stream?.getTracks().forEach(t => t.stop());
+  stream = null;
+  $("view").srcObject = null;
+  say("camera stopped");
+}
+
+async function start() {
+  stop();
+  const id = sel => sel.value ? {exact: sel.value} : undefined;
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: {deviceId: id($("cam")), width: 1280, height: 720, frameRate: 30},
+    // Processing off keeps the beep's onset sharp; Chrome stamps capture time before processing either way.
+    audio: {deviceId: id($("mic")), echoCancellation: false, noiseSuppression: false, autoGainControl: false},
+  });
+  $("view").srcObject = stream;
+  await list();  // labels appear once permission is granted, and Sepia Cam only while sepiad runs
+  $("cam").value = stream.getVideoTracks()[0].getSettings().deviceId;
+  say(`camera on: ${stream.getVideoTracks()[0].label}`);
+}
+
+async function record() {
+  if (!stream) await start();
+  const label = stream.getVideoTracks()[0].label.replace(/[^A-Za-z0-9]+/g, "-");
+  const rec = new MediaRecorder(stream, {mimeType: "video/webm;codecs=vp8,opus", videoBitsPerSecond: 4e6});
+  const chunks = [];
+  rec.ondataavailable = e => chunks.push(e.data);
+  rec.onstop = () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(chunks, {type: "video/webm"}));
+    a.download = `av-sync-${label}-${new Date().toISOString().slice(0, 19).replace(/:/g, "")}.webm`;
+    a.click();
+    say(`saved ${a.download}`);
+  };
+  rec.start(1000);
+  say(`recording ${$("secs").value} s`);
+  setTimeout(() => rec.stop(), $("secs").value * 1000);
+}
+
+$("start").onclick = () => start().catch(e => say(e.message));
+$("stop").onclick = stop;
+$("refresh").onclick = () => list().then(() => say("list refreshed"));
+navigator.mediaDevices.ondevicechange = list;
+$("record").onclick = () => record().catch(e => say(e.message));
+$("cam").onchange = $("mic").onchange = () => stream && start().catch(e => say(e.message));
+list();
+</script>

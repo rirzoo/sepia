@@ -340,3 +340,20 @@ No new runs. Each of the 12 sepiad rows of Oct 24, from the [Meet call](#pp-huma
 | Meet call, PP-HumanSeg (3 runs) | 56.0 to 56.9 ms | 34.0 to 34.4 ms | 22.0 to 22.5 ms | 42.8 to 45.6 ms |
 
 In every run the frame reached sepiad about one frame period after its driver timestamp, so on average no frame waited in the queue. That time is the camera sending the frame, and Chrome waits just as long when it reads the real camera. Sepia's own share is the rest: 17.7 to 19.2 ms on average with the multiclass model and 22.0 to 22.5 ms with PP-HumanSeg. The last column subtracts one frame period from the p95, which assumes the camera's part stays at its mean; its run means varied by 1.2 ms.
+
+### A/V sync in Chrome, real camera against Sepia Cam (Oct 24, 2026)
+
+Oct 24, 17:11 to 17:33 IST, plugged in, with the CPU on the `balanced-battery` profile. No call: Chrome records a camera and the built-in mic with `scripts/av_sync.html` (MediaRecorder, VP8 and Opus, audio processing off). Chrome stamps camera frames when they arrive and audio when it is captured, and the recording keeps the offset between them, since Chrome 156's `media/muxers/muxer_timestamp_adapter.cc` measures both tracks from one first timestamp. So a recording holds the same offset a Meet receiver would get. The camera films a phone playing the test video from `scripts/av_sync_video.sh`, a ramp to white with a beep once a second, and `scripts/av_offsets.py` times each flash and each beep. On simulated recordings with offsets of 0 and 40 ms it measured −0.2 and −41.2 ms. sepiad ran with its defaults: multiclass model, crisp edges, steady smoothing.
+
+A negative offset means the picture comes before the sound. The phone's speaker lags its screen, so every number includes that lag, and only the difference between the rounds counts.
+
+| Round | Length | Events | Picture minus sound, mean ± sd | Median |
+| --- | --- | --- | --- | --- |
+| A, real camera | 110 s | 106 | −37.5 ± 13.2 ms | −43.3 ms |
+| B, Sepia Cam | 80 s | 80 | −60.7 ± 45.4 ms | −49.0 ms |
+
+Neither round held still. In round A the offset drifted by about 0.5 ms a second, with jumps of 15 to 20 ms every 15 to 30 s, and covered −16 to −60 ms in one recording. Whether the phone's player or Chrome's audio timestamps cause this isn't known. Round B's first six events were −149 to −231 ms, a start-up glitch; after that it stayed between −20 and −59 ms. If Sepia Cam added its 18 ms, round B would sit about 18 ms later than round A. It came out a few milliseconds earlier, inside the drift.
+
+A first round B was discarded. The page had recorded the mic of a pair of Bluetooth headphones, which had become the default input and barely heard the beep.
+
+**Decision:** the test rules out a large added offset, but it can't resolve 18 ms. Sepia's share stays measured from timestamps ([Where the latency goes](#where-the-latency-goes-oct-24-2026)). Looking into the drift would need a flash-and-beep source that can be trusted.
